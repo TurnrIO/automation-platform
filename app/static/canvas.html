@@ -216,7 +216,7 @@ const NODE_DEFS = {
   "action.slack":        { label:"Slack Message",     icon:"💬", color:"#4a154b", group:"action",  fields:[{k:"credential",l:"Slack Credential (name)",ph:"my-slack"},{k:"webhook_url",l:"Webhook URL (overrides credential)",ph:"https://hooks.slack.com/services/...",secret:true},{k:"message",l:"Message",ph:"Flow done: {{upstream.result}}",textarea:true},{k:"channel",l:"Channel (optional)",ph:"#notifications"}] },
   "action.call_graph":   { label:"Call Sub-flow",      icon:"⛓",  color:"#6366f1", group:"action",  fields:[{k:"graph_id",l:"Target Graph ID",ph:"123"},{k:"payload",l:"Payload override (JSON)",ph:'{"key":"{{upstream.value}}"}',textarea:true,mono:true}] },
   "action.ssh":          { label:"SSH Command",        icon:"💻", color:"#0f766e", group:"action",    fields:[{k:"credential",l:"SSH Credential (name)",ph:"my-ssh-server"},{k:"host",l:"Host (overrides credential)",ph:"192.168.1.1"},{k:"port",l:"Port (overrides credential)",ph:"22"},{k:"username",l:"Username (overrides credential)",ph:"admin"},{k:"password",l:"Password (overrides credential)",ph:"••••••••",secret:true},{k:"command",l:"Command",ph:"ls -la /var/log",mono:true,textarea:true}] },
-  "action.sftp":         { label:"SFTP / FTP",         icon:"📁", color:"#1d4ed8", group:"action",    fields:[{k:"credential",l:"SFTP Credential (name)",ph:"my-sftp-server"},{k:"protocol",l:"Protocol (overrides credential)",ph:"sftp",type:"select",options:["sftp","ftp"]},{k:"host",l:"Host (overrides credential)",ph:"files.example.com"},{k:"port",l:"Port (overrides credential)",ph:"22 (sftp) · 21 (ftp)"},{k:"username",l:"Username (overrides credential)",ph:"admin"},{k:"password",l:"Password (overrides credential)",ph:"••••••••",secret:true},{k:"operation",l:"Operation",ph:"list",type:"select",options:["list","upload","download","delete","mkdir"]},{k:"remote_path",l:"Remote path",ph:"/uploads/report.csv",mono:true},{k:"content",l:"Content (upload only)",ph:"{{upstream.body}}",textarea:true}] },
+  "action.sftp":         { label:"SFTP / FTP",         icon:"📁", color:"#1d4ed8", group:"action",    fields:[{k:"credential",l:"SFTP Credential (name)",ph:"my-sftp-server"},{k:"protocol",l:"Protocol (overrides credential)",ph:"sftp",type:"select",options:["sftp","ftp"]},{k:"host",l:"Host (overrides credential)",ph:"files.example.com"},{k:"port",l:"Port (overrides credential)",ph:"22 (sftp) · 21 (ftp)"},{k:"username",l:"Username (overrides credential)",ph:"admin"},{k:"password",l:"Password (overrides credential)",ph:"••••••••",secret:true},{k:"operation",l:"Operation",ph:"list",type:"select",options:["list","upload","download","delete","mkdir","rename","exists","stat"]},{k:"remote_path",l:"Remote path",ph:"/uploads/report.csv",mono:true},{k:"recursive",l:"Recursive (list only)",ph:"false",type:"select",options:["false","true"]},{k:"new_path",l:"New path (rename only)",ph:"/uploads/renamed.csv",mono:true},{k:"content",l:"Content (upload only)",ph:"{{upstream.body}}",textarea:true},{k:"timeout",l:"Timeout (seconds)",ph:"30"}] },
   "action.github":       { label:"GitHub",             icon:"🐙", color:"#24292f", group:"integration", fields:[
     {k:"credential",l:"GitHub Credential (name)",ph:"my-github"},
     {k:"token",l:"Token (overrides credential)",ph:"ghp_…",secret:true},
@@ -538,14 +538,17 @@ function ConfigPanel({ node, onChange, onDelete }){
         )}
         {node.data.type === "action.sftp" && (
           <div style={{background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#94a3b8",marginTop:6,lineHeight:1.9}}>
-            <div style={{color:"#a78bfa",fontWeight:600,marginBottom:4}}>💡 Credential shortcut</div>
+            <div style={{color:"#a78bfa",fontWeight:600,marginBottom:4}}>📁 SFTP / FTP Operations</div>
             Create an <strong>SFTP / FTP Server</strong> credential and set <strong>SFTP Credential</strong> to its name.<br/>
             <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:"0 10px",marginTop:6}}>
-              <code style={{color:"#a78bfa"}}>list</code><span>→ {"{ files: [...], count }"}</span>
+              <code style={{color:"#a78bfa"}}>list</code><span>→ {"{ files:[{name,path,size,is_dir,depth}], count }"} — set <em>recursive: true</em> to walk all subdirs</span>
               <code style={{color:"#a78bfa"}}>upload</code><span>→ put <em>content</em> at remote_path</span>
               <code style={{color:"#a78bfa"}}>download</code><span>→ {"{ content, size }"}</span>
               <code style={{color:"#a78bfa"}}>delete</code><span>→ remove remote file</span>
               <code style={{color:"#a78bfa"}}>mkdir</code><span>→ create remote directory</span>
+              <code style={{color:"#a78bfa"}}>rename</code><span>→ move/rename — set <em>new_path</em> as destination</span>
+              <code style={{color:"#a78bfa"}}>exists</code><span>→ {"{ exists, is_dir }"} — non-destructive check</span>
+              <code style={{color:"#a78bfa"}}>stat</code><span>→ {"{ size, is_dir, modified }"} — metadata for one path</span>
             </div>
           </div>
         )}
