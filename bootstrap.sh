@@ -277,6 +277,16 @@ def init_db():
                 saved_at   TIMESTAMPTZ DEFAULT NOW()
             )
         """)
+        # ── graph_workflows column migrations (idempotent for older installs)
+        for col, defn in [
+            ("description",   "TEXT DEFAULT ''"),
+            ("graph_json",     "TEXT DEFAULT '{}'"),
+            ("enabled",        "BOOLEAN DEFAULT TRUE"),
+            ("webhook_token",  "TEXT DEFAULT md5(random()::text)"),
+            ("created_at",     "TIMESTAMPTZ DEFAULT NOW()"),
+            ("updated_at",     "TIMESTAMPTZ DEFAULT NOW()"),
+        ]:
+            cur.execute(f"ALTER TABLE graph_workflows ADD COLUMN IF NOT EXISTS {col} {defn}")
         # ── slug migration: add column + backfill existing rows ────────
         cur.execute("ALTER TABLE graph_workflows ADD COLUMN IF NOT EXISTS slug VARCHAR(12) UNIQUE")
         cur.execute("SELECT id FROM graph_workflows WHERE slug IS NULL")
