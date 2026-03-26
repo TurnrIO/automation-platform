@@ -1,0 +1,79 @@
+{
+  "name": "Daily Health Check",
+  "description": "Runs every morning, hits an HTTP endpoint, and sends a Slack alert if it's down.",
+  "category": "Monitoring",
+  "tags": ["http", "slack", "cron", "monitoring"],
+  "graph_data": {
+    "nodes": [
+      {
+        "id": "trigger1",
+        "type": "trigger.cron",
+        "position": {"x": 60, "y": 180},
+        "data": {
+          "label": "Every morning 8am",
+          "config": {"cron": "0 8 * * *", "timezone": "UTC", "description": "Daily at 8am UTC"},
+          "disabled": false,
+          "retry_max": 0,
+          "retry_delay": 5
+        }
+      },
+      {
+        "id": "http1",
+        "type": "action.http_request",
+        "position": {"x": 325, "y": 180},
+        "data": {
+          "label": "Check endpoint",
+          "config": {"url": "https://your-service.example.com/health", "method": "GET"},
+          "disabled": false,
+          "retry_max": 1,
+          "retry_delay": 10
+        }
+      },
+      {
+        "id": "cond1",
+        "type": "action.condition",
+        "position": {"x": 590, "y": 180},
+        "data": {
+          "label": "Status 200?",
+          "config": {"expression": "input.get('status') == 200"},
+          "disabled": false,
+          "retry_max": 0,
+          "retry_delay": 5
+        }
+      },
+      {
+        "id": "slack1",
+        "type": "action.slack",
+        "position": {"x": 855, "y": 310},
+        "data": {
+          "label": "Alert: service DOWN",
+          "config": {
+            "credential": "my-slack",
+            "message": ":red_circle: *Health check FAILED* — status {{http1.status}}\nEndpoint returned unexpected response."
+          },
+          "disabled": false,
+          "retry_max": 0,
+          "retry_delay": 5
+        }
+      },
+      {
+        "id": "log1",
+        "type": "action.log",
+        "position": {"x": 855, "y": 80},
+        "data": {
+          "label": "Log: OK",
+          "config": {"message": "Health check passed — status {{http1.status}}"},
+          "disabled": false,
+          "retry_max": 0,
+          "retry_delay": 5
+        }
+      }
+    ],
+    "edges": [
+      {"id": "e1", "source": "trigger1", "target": "http1", "sourceHandle": null, "targetHandle": null},
+      {"id": "e2", "source": "http1", "target": "cond1", "sourceHandle": null, "targetHandle": null},
+      {"id": "e3", "source": "cond1", "target": "log1", "sourceHandle": "true", "targetHandle": null},
+      {"id": "e4", "source": "cond1", "target": "slack1", "sourceHandle": "false", "targetHandle": null}
+    ]
+  }
+}

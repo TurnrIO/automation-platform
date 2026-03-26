@@ -1,0 +1,55 @@
+{
+  "name": "Webhook → Notion",
+  "description": "Receives a webhook payload and creates a page in Notion. Great for form submissions, CI events, or alerts.",
+  "category": "Integrations",
+  "tags": ["webhook", "notion", "trigger", "forms"],
+  "graph_data": {
+    "nodes": [
+      {
+        "id": "trigger1",
+        "type": "trigger.webhook",
+        "position": {"x": 60, "y": 200},
+        "data": {
+          "label": "Incoming webhook",
+          "config": {"description": "POST your event payload here"},
+          "disabled": false,
+          "retry_max": 0,
+          "retry_delay": 5
+        }
+      },
+      {
+        "id": "notion1",
+        "type": "action.notion",
+        "position": {"x": 325, "y": 200},
+        "data": {
+          "label": "Create Notion page",
+          "config": {
+            "credential": "my-notion",
+            "action": "create_page",
+            "database_id": "YOUR_DATABASE_ID",
+            "properties_json": "{\"Name\":{\"title\":[{\"text\":{\"content\":\"{{trigger1.title}}\"}}]},\"Source\":{\"rich_text\":[{\"text\":{\"content\":\"webhook\"}}]}}"
+          },
+          "disabled": false,
+          "retry_max": 1,
+          "retry_delay": 5
+        }
+      },
+      {
+        "id": "log1",
+        "type": "action.log",
+        "position": {"x": 590, "y": 200},
+        "data": {
+          "label": "Log result",
+          "config": {"message": "Page created: {{notion1.id}}"},
+          "disabled": false,
+          "retry_max": 0,
+          "retry_delay": 5
+        }
+      }
+    ],
+    "edges": [
+      {"id": "e1", "source": "trigger1", "target": "notion1", "sourceHandle": null, "targetHandle": null},
+      {"id": "e2", "source": "notion1", "target": "log1", "sourceHandle": null, "targetHandle": null}
+    ]
+  }
+}

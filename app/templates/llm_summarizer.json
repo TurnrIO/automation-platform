@@ -1,0 +1,73 @@
+{
+  "name": "LLM Summarizer",
+  "description": "Fetches content from a URL, passes it to an LLM for summarization, then sends the result via Slack.",
+  "category": "AI",
+  "tags": ["llm", "openai", "slack", "summarize", "http"],
+  "graph_data": {
+    "nodes": [
+      {
+        "id": "trigger1",
+        "type": "trigger.manual",
+        "position": {"x": 60, "y": 200},
+        "data": {
+          "label": "Manual trigger",
+          "config": {},
+          "disabled": false,
+          "retry_max": 0,
+          "retry_delay": 5
+        }
+      },
+      {
+        "id": "http1",
+        "type": "action.http_request",
+        "position": {"x": 325, "y": 200},
+        "data": {
+          "label": "Fetch content",
+          "config": {
+            "url": "https://your-content-source.example.com/latest",
+            "method": "GET"
+          },
+          "disabled": false,
+          "retry_max": 1,
+          "retry_delay": 5
+        }
+      },
+      {
+        "id": "llm1",
+        "type": "action.llm_call",
+        "position": {"x": 590, "y": 200},
+        "data": {
+          "label": "Summarize with LLM",
+          "config": {
+            "model": "gpt-4o-mini",
+            "system": "You are a concise summarizer. Keep summaries under 3 sentences.",
+            "prompt": "Please summarize the following content:\n\n{{http1.body}}"
+          },
+          "disabled": false,
+          "retry_max": 1,
+          "retry_delay": 10
+        }
+      },
+      {
+        "id": "slack1",
+        "type": "action.slack",
+        "position": {"x": 855, "y": 200},
+        "data": {
+          "label": "Post summary",
+          "config": {
+            "credential": "my-slack",
+            "message": ":robot_face: *AI Summary*\n{{llm1.response}}\n_Used {{llm1.tokens}} tokens_"
+          },
+          "disabled": false,
+          "retry_max": 0,
+          "retry_delay": 5
+        }
+      }
+    ],
+    "edges": [
+      {"id": "e1", "source": "trigger1", "target": "http1", "sourceHandle": null, "targetHandle": null},
+      {"id": "e2", "source": "http1", "target": "llm1", "sourceHandle": null, "targetHandle": null},
+      {"id": "e3", "source": "llm1", "target": "slack1", "sourceHandle": null, "targetHandle": null}
+    ]
+  }
+}

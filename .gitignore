@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Environment — never commit real secrets
+.env
+
+# Runtime data
+runlogs/
+*.log
+
+# Docker
+.docker/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store

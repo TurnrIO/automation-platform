@@ -1,0 +1,73 @@
+{
+  "name": "GitHub Issue → Slack",
+  "description": "Fetches open GitHub issues and posts a summary to Slack. Run on a schedule or manually.",
+  "category": "Integrations",
+  "tags": ["github", "slack", "issues", "notifications"],
+  "graph_data": {
+    "nodes": [
+      {
+        "id": "trigger1",
+        "type": "trigger.cron",
+        "position": {"x": 60, "y": 200},
+        "data": {
+          "label": "Every weekday 9am",
+          "config": {"cron": "0 9 * * 1-5", "timezone": "UTC", "description": "Weekdays at 9am"},
+          "disabled": false,
+          "retry_max": 0,
+          "retry_delay": 5
+        }
+      },
+      {
+        "id": "github1",
+        "type": "action.github",
+        "position": {"x": 325, "y": 200},
+        "data": {
+          "label": "Fetch open issues",
+          "config": {
+            "credential": "my-github",
+            "action": "list_issues",
+            "owner": "your-org",
+            "repo": "your-repo"
+          },
+          "disabled": false,
+          "retry_max": 1,
+          "retry_delay": 5
+        }
+      },
+      {
+        "id": "transform1",
+        "type": "action.transform",
+        "position": {"x": 590, "y": 200},
+        "data": {
+          "label": "Format summary",
+          "config": {
+            "expression": "{'count': len(input.get('issues', [])), 'titles': [i['title'] for i in input.get('issues', [])[:5]]}"
+          },
+          "disabled": false,
+          "retry_max": 0,
+          "retry_delay": 5
+        }
+      },
+      {
+        "id": "slack1",
+        "type": "action.slack",
+        "position": {"x": 855, "y": 200},
+        "data": {
+          "label": "Post to Slack",
+          "config": {
+            "credential": "my-slack",
+            "message": ":github: *Open Issues Update* — {{transform1.count}} open issues\n{{transform1.titles}}"
+          },
+          "disabled": false,
+          "retry_max": 0,
+          "retry_delay": 5
+        }
+      }
+    ],
+    "edges": [
+      {"id": "e1", "source": "trigger1", "target": "github1", "sourceHandle": null, "targetHandle": null},
+      {"id": "e2", "source": "github1", "target": "transform1", "sourceHandle": null, "targetHandle": null},
+      {"id": "e3", "source": "transform1", "target": "slack1", "sourceHandle": null, "targetHandle": null}
+    ]
+  }
+}

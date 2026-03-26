@@ -1,0 +1,1524 @@
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>HiveRunr</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',system-ui,sans-serif;background:#0f1117;color:#e2e8f0;min-height:100vh}
+#root{display:flex;min-height:100vh}
+.sidebar{width:220px;background:#1a1d2e;border-right:1px solid #2a2d3e;display:flex;flex-direction:column;padding:20px 0;flex-shrink:0;position:fixed;height:100vh;z-index:10}
+.sidebar .logo{font-size:16px;font-weight:700;color:#a78bfa;padding:0 20px 24px;letter-spacing:-.3px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:10px 20px;cursor:pointer;color:#94a3b8;font-size:13px;font-weight:500;border-radius:0;transition:all .15s;border-left:3px solid transparent}
+.nav-item:hover{background:#252840;color:#e2e8f0}
+.nav-item.active{background:#252840;color:#a78bfa;border-left-color:#7c3aed}
+.nav-icon{font-size:16px;width:20px;text-align:center}
+.sidebar-footer{margin-top:auto;border-top:1px solid #2a2d3e;padding:14px 12px 10px}
+.sidebar-footer .footer-label{font-size:10px;color:#4b5563;padding:0 8px;margin-bottom:8px;text-transform:uppercase;letter-spacing:.07em;font-weight:600}
+.ext-link{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:7px;color:#64748b;font-size:12px;font-weight:500;text-decoration:none;transition:all .15s;cursor:pointer}
+.ext-link:hover{background:#252840;color:#e2e8f0}
+.ext-link .el-icon{font-size:15px;width:20px;text-align:center}
+.main{margin-left:220px;flex:1;padding:32px;max-width:1100px}
+.page-title{font-size:22px;font-weight:700;margin-bottom:24px;color:#f1f5f9}
+.card{background:#1a1d2e;border:1px solid #2a2d3e;border-radius:10px;padding:20px;margin-bottom:16px}
+.card-title{font-size:13px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.07em;margin-bottom:14px}
+.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+.stat-card{background:#1a1d2e;border:1px solid #2a2d3e;border-radius:10px;padding:18px 20px}
+.stat-val{font-size:28px;font-weight:700;color:#e2e8f0}
+.stat-lbl{font-size:12px;color:#64748b;margin-top:4px}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.badge-queued{background:#1e3a5f;color:#60a5fa}
+.badge-running{background:#1c3238;color:#34d399;animation:pulse 1.5s infinite}
+.badge-succeeded{background:#14532d;color:#4ade80}
+.badge-failed{background:#3f1111;color:#f87171}
+.badge-cancelled{background:#2d2d2d;color:#9ca3af}
+.badge-credential{display:inline-block;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;font-family:monospace;background:#0f1117;border:1px solid #2a2d3e}
+.badge-credential.openai_api{background:#5b21b633;color:#d8b4fe;border-color:#7c3aed}
+.badge-credential.smtp{background:#1e3a8a33;color:#93c5fd;border-color:#0284c7}
+.badge-credential.telegram{background:#164e6333;color:#67e8f9;border-color:#0891b2}
+.badge-credential.aws{background:#7c2d1233;color:#fed7aa;border-color:#d97706}
+.badge-credential.ssh{background:#0f4c3a33;color:#34d399;border-color:#059669}
+.badge-credential.ftp{background:#1e3a5f33;color:#7dd3fc;border-color:#0284c7}
+.badge-credential.generic,.badge-credential.other{background:#2d2d2d33;color:#9ca3af;border-color:#4b5563}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:#64748b;font-weight:500;padding:8px 12px;border-bottom:1px solid #2a2d3e;font-size:12px}
+td{padding:10px 12px;border-bottom:1px solid #1e2235;color:#cbd5e1;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#1e2235}
+.btn{display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:500;border:none;cursor:pointer;transition:all .15s}
+.btn-primary{background:#7c3aed;color:#fff}.btn-primary:hover{background:#6d28d9}
+.btn-success{background:#059669;color:#fff}.btn-success:hover{background:#047857}
+.btn-danger{background:#dc2626;color:#fff}.btn-danger:hover{background:#b91c1c}
+.btn-ghost{background:#2a2d3e;color:#94a3b8;border:1px solid #374151}.btn-ghost:hover{color:#e2e8f0;background:#374151}
+.btn-warning{background:#d97706;color:#fff}.btn-warning:hover{background:#b45309}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.form-group{margin-bottom:12px}
+label{display:block;font-size:11px;color:#94a3b8;font-weight:500;margin-bottom:5px}
+input,select,textarea{width:100%;background:#0f1117;color:#e2e8f0;border:1px solid #2a2d3e;border-radius:6px;padding:8px 10px;font-size:13px;font-family:inherit}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#7c3aed}
+.wf-pill{display:flex;align-items:center;justify-content:space-between;background:#0f1117;border:1px solid #2a2d3e;border-radius:8px;padding:10px 14px;margin-bottom:8px}
+.wf-name{font-size:13px;font-weight:500}
+.wf-enabled{font-size:11px;color:#059669}
+.wf-disabled{font-size:11px;color:#dc2626}
+.log-file{background:#0f1117;border:1px solid #2a2d3e;border-radius:6px;padding:10px 14px;font-size:12px;font-family:monospace;cursor:pointer;margin-bottom:6px;color:#94a3b8;transition:border-color .15s}
+.log-file:hover{border-color:#7c3aed;color:#e2e8f0}
+.log-content{background:#0a0c14;border:1px solid #2a2d3e;border-radius:6px;padding:14px;font-size:11px;font-family:monospace;white-space:pre-wrap;max-height:400px;overflow-y:auto;color:#94a3b8;line-height:1.7}
+.actions-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.empty-state{color:#4b5563;font-size:13px;text-align:center;padding:40px 0}
+.toast{position:fixed;bottom:20px;right:20px;background:#1a1d2e;border:1px solid #2a2d3e;border-radius:8px;padding:10px 16px;font-size:13px;z-index:9999;display:flex;align-items:center;gap:8px;box-shadow:0 8px 24px rgba(0,0,0,.4);animation:slideUp .2s ease}
+.toast.ok{border-color:#059669;color:#34d399}
+.toast.err{border-color:#dc2626;color:#f87171}
+@keyframes slideUp{from{transform:translateY(12px);opacity:0}to{transform:translateY(0);opacity:1}}
+.info-box{background:#0f1117;border:1px solid #2a2d3e;border-left:3px solid #7c3aed;border-radius:6px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:#94a3b8;line-height:1.6}
+.trace-table{margin-top:10px;background:#0f1117;border:1px solid #2a2d3e;border-radius:6px;padding:0;overflow:hidden}
+.trace-table table{margin:0;font-size:12px}
+.trace-table th,.trace-table td{padding:8px 10px}
+.trace-status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+.trace-status-dot.ok{background:#4ade80}
+.trace-status-dot.err{background:#f87171}
+.trace-status-dot.skipped{background:#64748b}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.modal{background:#1a1d2e;border:1px solid #2a2d3e;border-radius:12px;padding:22px;min-width:400px;max-width:600px;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.modal h2{font-size:15px;font-weight:600;margin-bottom:14px;color:#e2e8f0}
+.modal-section{font-size:10px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin:12px 0 8px;padding-bottom:5px;border-bottom:1px solid #2a2d3e}
+.modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.version-row{padding:10px;border-bottom:1px solid #2a2d3e;display:flex;align-items:center;justify-content:space-between}
+.version-row:last-child{border-bottom:none}
+.version-info{flex:1;min-width:0;font-size:12px}
+.version-num{font-weight:600;color:#e2e8f0;margin-bottom:2px}
+.version-date{font-size:11px;color:#64748b}
+.version-note{font-size:11px;color:#94a3b8;margin-top:2px}
+.expandable-row{cursor:pointer;transition:background .15s}
+.expandable-row:hover td{background:#252840}
+.trace-collapsed{background:#252840;border:1px solid #2a2d3e;border-radius:6px;padding:12px 14px;font-size:11px;color:#94a3b8;display:none;margin-top:8px}
+.trace-collapsed.show{display:block}
+.stat-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+.stat-card{background:#1a1d2e;border:1px solid #2a2d3e;border-radius:10px;padding:20px;text-align:center}
+.stat-value{font-size:32px;font-weight:700;margin-bottom:4px;line-height:1}
+.stat-label{font-size:12px;color:#64748b}
+.bar-chart{display:flex;align-items:flex-end;gap:3px;height:80px;margin:12px 0 6px}
+.bar-col{display:flex;flex-direction:column-reverse;align-items:center;flex:1;gap:1px}
+.bar-seg{width:100%;border-radius:2px 2px 0 0;min-height:2px;transition:height .3s}
+.bar-label{font-size:9px;color:#4b5563;margin-top:4px;text-align:center}
+.script-list{width:210px;flex-shrink:0;background:#1a1d2e;border-right:1px solid #2a2d3e;display:flex;flex-direction:column;height:calc(100vh - 160px)}
+.script-item{padding:10px 14px;cursor:pointer;border-bottom:1px solid #1e2235;transition:background .12s}
+.script-item:hover{background:#2a2d3e}
+.script-item.active{background:#2a2d3e;border-left:2px solid #7c3aed}
+.script-item-name{font-size:13px;color:#e2e8f0;font-weight:500}
+.script-item-meta{font-size:10px;color:#4b5563;margin-top:2px}
+.editor-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.editor-toolbar{padding:8px 14px;background:#1a1d2e;border-bottom:1px solid #2a2d3e;display:flex;align-items:center;gap:8px}
+.editor-container{flex:1}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+const params = new URLSearchParams(window.location.search);
+const TOKEN  = params.get("token") || "";
+
+async function api(method, path, body) {
+  const r = await fetch(path, {
+    method,
+    headers: {"Content-Type":"application/json","x-admin-token": TOKEN},
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (!r.ok) { const e = await r.json().catch(()=>({detail:r.statusText})); throw new Error(e.detail || r.statusText); }
+  return r.json();
+}
+
+function Toast({ msg, type, onDone }) {
+  useEffect(()=>{ const t=setTimeout(onDone,3000); return ()=>clearTimeout(t); },[]);
+  return <div className={`toast ${type==="error"?"err":"ok"}`}>{type==="error"?"✗":"✓"} {msg}</div>;
+}
+
+// ── Dashboard ──────────────────────────────────────────────────────────────
+function Dashboard({ showToast }) {
+  const [runs, setRuns]       = useState([]);
+  const [workflows, setWfs]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedRunId, setExpandedRunId] = useState(null);
+
+  const load = useCallback(async () => {
+    try {
+      const [r, w] = await Promise.all([api("GET","/api/runs"), api("GET","/api/workflows")]);
+      setRuns(r); setWfs(w);
+    } catch(e) { showToast(e.message,"error"); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); const t=setInterval(load,5000); return ()=>clearInterval(t); }, []);
+
+  const stats = {
+    total: runs.length,
+    active: runs.filter(r=>r.status==="running"||r.status==="queued").length,
+    ok: runs.filter(r=>r.status==="succeeded").length,
+    failed: runs.filter(r=>r.status==="failed").length
+  };
+
+  async function toggleWf(name) {
+    try { await api("POST",`/api/workflows/${name}/toggle`); load(); showToast("Toggled"); }
+    catch(e) { showToast(e.message,"error"); }
+  }
+  async function runWf(name) {
+    try { await api("POST",`/api/workflows/${name}/run`,{payload:{}}); load(); showToast("Queued!"); }
+    catch(e) { showToast(e.message,"error"); }
+  }
+  async function deleteRun(id) {
+    try { await api("DELETE",`/api/runs/${id}`); load(); }
+    catch(e) { showToast(e.message,"error"); }
+  }
+  async function cancelRun(id) {
+    try { await api("POST",`/api/runs/${id}/cancel`); load(); showToast("Cancelled"); }
+    catch(e) { showToast(e.message,"error"); }
+  }
+  async function replayRun(id) {
+    try { await api("POST",`/api/runs/${id}/replay`); load(); showToast("Queued for replay"); }
+    catch(e) { showToast(e.message,"error"); }
+  }
+
+  return (
+    <div>
+      <h1 className="page-title">Dashboard</h1>
+      <div className="stat-grid">
+        <div className="stat-card"><div className="stat-val">{stats.total}</div><div className="stat-lbl">Total Runs</div></div>
+        <div className="stat-card"><div className="stat-val" style={{color:"#60a5fa"}}>{stats.active}</div><div className="stat-lbl">Active</div></div>
+        <div className="stat-card"><div className="stat-val" style={{color:"#4ade80"}}>{stats.ok}</div><div className="stat-lbl">Succeeded</div></div>
+        <div className="stat-card"><div className="stat-val" style={{color:"#f87171"}}>{stats.failed}</div><div className="stat-lbl">Failed</div></div>
+      </div>
+      {workflows.length > 0 && (
+        <div className="card" style={{marginBottom:24}}>
+          <div className="card-title">Python Workflows</div>
+          {workflows.map(w=>(
+            <div key={w.name} className="wf-pill">
+              <div>
+                <div className="wf-name">{w.name}</div>
+                <div className={w.enabled?"wf-enabled":"wf-disabled"}>{w.enabled?"● enabled":"○ disabled"}</div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button className="btn btn-ghost" onClick={()=>toggleWf(w.name)}>Toggle</button>
+                <button className="btn btn-success" disabled={!w.enabled} onClick={()=>runWf(w.name)}>▶ Run</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="card">
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+          <div className="card-title" style={{marginBottom:0}}>Recent Runs</div>
+          <button className="btn btn-ghost" onClick={()=>api("DELETE","/api/runs").then(load)}>Clear all</button>
+        </div>
+        {loading ? <div className="empty-state">Loading…</div> : runs.length === 0 ? (
+          <div className="empty-state">No runs yet. Trigger a workflow to get started.</div>
+        ) : (
+          <>
+            <table>
+              <thead><tr><th>#</th><th>Workflow</th><th>Status</th><th>Started</th><th></th></tr></thead>
+              <tbody>
+                {runs.map(r=>(
+                  <React.Fragment key={r.id}>
+                    <tr className="expandable-row" onClick={()=>setExpandedRunId(expandedRunId===r.id?null:r.id)} style={{cursor:'pointer'}}>
+                      <td style={{color:"#4b5563"}}>{r.id}</td>
+                      <td>{r.flow_name || "—"}</td>
+                      <td><span className={`badge badge-${r.status}`}>{r.status}</span></td>
+                      <td style={{color:"#64748b"}}>{r.created_at ? new Date(r.created_at).toLocaleString() : "—"}</td>
+                      <td>
+                        <div style={{display:"flex",gap:6}}>
+                          {r.graph_id && <button className="btn btn-ghost" onClick={(e)=>{e.stopPropagation();replayRun(r.id)}}>▶ Replay</button>}
+                          {(r.status==="queued"||r.status==="running") &&
+                            <button className="btn btn-warning" onClick={(e)=>{e.stopPropagation();cancelRun(r.id)}}>Cancel</button>}
+                          <button className="btn btn-danger" onClick={(e)=>{e.stopPropagation();deleteRun(r.id)}}>✕</button>
+                        </div>
+                      </td>
+                    </tr>
+                    {expandedRunId===r.id && (
+                      <tr style={{background:"#0f1117"}}>
+                        <td colSpan="5" style={{padding:"12px"}}>
+                          {r.initial_payload && Object.keys(r.initial_payload).length > 0 && (
+                            <div style={{marginBottom:12}}>
+                              <div style={{fontSize:11,fontWeight:600,color:"#94a3b8",marginBottom:6}}>Initial Payload</div>
+                              <div style={{background:"#0a0c14",border:"1px solid #2a2d3e",borderRadius:6,padding:10,fontFamily:"monospace",fontSize:11,color:"#94a3b8",maxHeight:200,overflowY:"auto"}}>
+                                {JSON.stringify(r.initial_payload,null,2)}
+                              </div>
+                            </div>
+                          )}
+                          {/* ── run output / error ── */}
+                          {r.result && (r.result.output || r.result.error) && (
+                            <div style={{marginBottom:12}}>
+                              <div style={{fontSize:11,fontWeight:600,color: r.result.error?"#f87171":"#4ade80",marginBottom:6}}>
+                                {r.result.error ? "❌ Error" : "✅ Output"}
+                              </div>
+                              <div style={{
+                                background:"#0a0c14",border:`1px solid ${r.result.error?"#7f1d1d":"#14532d"}`,
+                                borderRadius:6,padding:10,fontFamily:"monospace",fontSize:11,
+                                color: r.result.error?"#fca5a5":"#86efac",
+                                maxHeight:300,overflowY:"auto",whiteSpace:"pre-wrap",wordBreak:"break-word"
+                              }}>
+                                {r.result.error || r.result.output}
+                              </div>
+                            </div>
+                          )}
+                          {r.traces && r.traces.length > 0 ? (
+                            <div>
+                              <div style={{fontSize:11,fontWeight:600,color:"#94a3b8",marginBottom:6}}>Trace</div>
+                              <div className="trace-table">
+                                <table>
+                                  <thead><tr><th>Node</th><th>Type</th><th>Status</th><th>Duration (ms)</th><th>Attempts</th><th>Output/Error</th></tr></thead>
+                                  <tbody>
+                                    {r.traces.map((t,idx)=>(
+                                      <tr key={idx}>
+                                        <td style={{fontFamily:"monospace",fontSize:11}}>{t.node_id}</td>
+                                        <td style={{fontSize:11}}>{t.type}</td>
+                                        <td>
+                                          <span className={`trace-status-dot ${t.status===undefined||t.status==="ok"?"ok":t.status==="error"?"err":"skipped"}`}/>
+                                          {t.status===undefined||t.status==="ok"?"ok":t.status==="error"?"error":"skipped"}
+                                        </td>
+                                        <td>{t.duration_ms ?? "—"}</td>
+                                        <td>{t.attempts ?? 1}</td>
+                                        <td>
+                                          <div style={{maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:11}}>
+                                            {t.error ? <span style={{color:"#f87171"}}>{String(t.error).slice(0,50)}</span> :
+                                             t.output ? <span style={{color:"#94a3b8"}}>{typeof t.output==="string"?t.output:JSON.stringify(t.output).slice(0,50)}</span> :
+                                             "—"}
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          ) : <div style={{color:"#4b5563",fontSize:12}}>No trace data available</div>}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Metrics ────────────────────────────────────────────────────────────────
+function relativeTime(ts) {
+  const d = Math.floor((Date.now() - new Date(ts)) / 1000);
+  if (d < 60) return `${d}s ago`;
+  if (d < 3600) return `${Math.floor(d/60)}m ago`;
+  if (d < 86400) return `${Math.floor(d/3600)}h ago`;
+  return `${Math.floor(d/86400)}d ago`;
+}
+
+function Metrics({ showToast }) {
+  const [metrics, setMetrics] = useState(null);
+  const [failingFlows, setFailingFlows] = useState([]);
+  const [recentRuns, setRecentRuns] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    try {
+      const m = await api("GET", "/api/metrics");
+      setMetrics(m);
+
+      const runs = await api("GET", "/api/runs");
+      const failMap = {};
+      runs.forEach(r => {
+        if (r.status === "failed") {
+          const wf = r.flow_name || "unknown";
+          failMap[wf] = (failMap[wf] || 0) + 1;
+        }
+      });
+      const failing = Object.entries(failMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
+      setFailingFlows(failing);
+      setRecentRuns(runs.slice(0, 10));
+    } catch(e) { showToast(e.message, "error"); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, []);
+
+  if (loading) return <div className="empty-state">Loading metrics…</div>;
+  if (!metrics) return <div className="empty-state">No metrics available.</div>;
+
+  const lastDay = (metrics.run_counts || []).slice(-14);
+  const maxRuns = Math.max(...lastDay.map(d => (d.succeeded || 0) + (d.failed || 0)), 1);
+
+  return (
+    <div>
+      <h1 className="page-title">Metrics</h1>
+
+      <div className="stat-cards">
+        <div className="stat-card">
+          <div className="stat-value" style={{color:"#a78bfa"}}>{metrics.total_runs || 0}</div>
+          <div className="stat-label">Total Runs</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value" style={{color:"#4ade80"}}>{metrics.succeeded_runs || 0}</div>
+          <div className="stat-label">Succeeded</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value" style={{color:"#f87171"}}>{metrics.failed_runs || 0}</div>
+          <div className="stat-label">Failed</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value" style={{color:"#38bdf8"}}>{Math.round(metrics.avg_duration_ms || 0)}</div>
+          <div className="stat-label">Avg Duration (ms)</div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-title">Last 14 Days</div>
+        <div className="bar-chart">
+          {lastDay.map((day, idx) => {
+            const succeeded = day.succeeded || 0;
+            const failed = day.failed || 0;
+            const total = succeeded + failed;
+            const sucHeight = maxRuns > 0 ? (succeeded / maxRuns) * 70 : 0;
+            const failHeight = maxRuns > 0 ? (failed / maxRuns) * 70 : 0;
+            const dateStr = new Date(day.date).toLocaleDateString().slice(-2).padStart(2, '0');
+            return (
+              <div key={idx} className="bar-col" title={`${dateStr}: ${succeeded}✓ ${failed}✗`}>
+                {succeeded > 0 && <div className="bar-seg" style={{height:`${sucHeight}px`,background:"#4ade80"}}/>}
+                {failed > 0 && <div className="bar-seg" style={{height:`${failHeight}px`,background:"#f87171"}}/>}
+                <div className="bar-label">{dateStr}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {failingFlows.length > 0 && (
+        <div className="card">
+          <div className="card-title">Top Failing Flows</div>
+          <table>
+            <thead><tr><th>Flow</th><th>Failed</th></tr></thead>
+            <tbody>
+              {failingFlows.map(([name, count]) => (
+                <tr key={name}>
+                  <td>{name}</td>
+                  <td><span className="badge badge-failed">{count}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {recentRuns.length > 0 && (
+        <div className="card">
+          <div className="card-title">Recent Runs</div>
+          <table>
+            <thead><tr><th>Flow</th><th>Status</th><th>Duration (ms)</th><th>Time</th></tr></thead>
+            <tbody>
+              {recentRuns.map(r => (
+                <tr key={r.id}>
+                  <td style={{fontSize:12}}>{r.flow_name || "—"}</td>
+                  <td><span className={`badge badge-${r.status}`}>{r.status}</span></td>
+                  <td style={{fontSize:12}}>{r.duration_ms || "—"}</td>
+                  <td style={{fontSize:12,color:"#64748b"}}>{relativeTime(r.started_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Scripts ────────────────────────────────────────────────────────────────
+function Scripts({ showToast }) {
+  const [scripts, setScripts]           = useState([]);
+  const [selectedScript, setSelectedScript] = useState(null);
+  const [loadingContent, setLoadingContent] = useState(false);
+  const [newName, setNewName]           = useState("");
+  const [creating, setCreating]         = useState(false);
+  const monacoRef          = useRef(null);
+  const editorContainerRef = useRef(null);
+
+  // Fetch the script list; if nothing selected yet, auto-select the first
+  const load = useCallback(async (keepSelected) => {
+    try {
+      const s = await api("GET", "/api/scripts");
+      setScripts(Array.isArray(s) ? s : []);
+      if (!keepSelected && s.length > 0) {
+        await selectScript(s[0].name);
+      }
+    } catch(e) { showToast(e.message, "error"); }
+  }, []);
+
+  // Fetch full script content and set as selected
+  async function selectScript(name) {
+    setLoadingContent(true);
+    try {
+      const full = await api("GET", `/api/scripts/${name}`);
+      setSelectedScript(full);        // full = { name, content }
+    } catch(e) { showToast(e.message, "error"); }
+    setLoadingContent(false);
+  }
+
+  useEffect(() => { load(false); }, []);
+
+  // (Re-)create Monaco editor whenever the selected script name changes
+  useEffect(() => {
+    if (!selectedScript || !editorContainerRef.current) return;
+    if (monacoRef.current) { monacoRef.current.dispose(); monacoRef.current = null; }
+
+    function initEditor() {
+      monacoRef.current = window.monaco.editor.create(editorContainerRef.current, {
+        value: selectedScript.content || '',
+        language: 'python',
+        theme: 'vs-dark',
+        fontSize: 13,
+        minimap: { enabled: false },
+        scrollBeyondLastLine: false,
+        automaticLayout: true,
+      });
+    }
+
+    if (window.monaco) { initEditor(); }
+    else {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js';
+      script.onload = () => {
+        window.require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' }});
+        window.require(['vs/editor/editor.main'], initEditor);
+      };
+      document.head.appendChild(script);
+    }
+
+    return () => { if (monacoRef.current) { monacoRef.current.dispose(); monacoRef.current = null; } };
+  }, [selectedScript?.name]);
+
+  async function createScript(e) {
+    e.preventDefault();
+    if (!newName.trim()) { showToast("Script name required", "error"); return; }
+    setCreating(true);
+    try {
+      await api("POST", "/api/scripts", { name: newName, content: `# ${newName}.py\n` });
+      const created = newName;
+      setNewName("");
+      await load(true);
+      await selectScript(created);
+      showToast("Script created");
+    } catch(e) { showToast(e.message, "error"); }
+    setCreating(false);
+  }
+
+  async function saveScript() {
+    if (!selectedScript || !monacoRef.current) return;
+    try {
+      const content = monacoRef.current.getValue();
+      await api("PUT", `/api/scripts/${selectedScript.name}`, { content });
+      // Update local state so content is current without re-fetching
+      setSelectedScript(s => ({ ...s, content }));
+      await load(true);
+      showToast("Saved");
+    } catch(e) { showToast(e.message, "error"); }
+  }
+
+  async function deleteScript() {
+    if (!selectedScript) return;
+    if (!window.confirm(`Delete "${selectedScript.name}"?`)) return;
+    try {
+      await api("DELETE", `/api/scripts/${selectedScript.name}`);
+      showToast("Deleted");
+      setSelectedScript(null);
+      await load(false);
+    } catch(e) { showToast(e.message, "error"); }
+  }
+
+  async function runScript() {
+    if (!selectedScript) return;
+    try {
+      const res = await api("POST", `/api/scripts/${selectedScript.name}/run`);
+      showToast(`Queued: task ${res.task_id}`);
+    } catch(e) { showToast(e.message, "error"); }
+  }
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",height:"100vh"}}>
+      <h1 className="page-title">Scripts</h1>
+      <div style={{display:"flex",flex:1,overflow:"hidden",marginTop:-24,marginLeft:-32,marginRight:-32,marginBottom:-32}}>
+        <div className="script-list">
+          <div style={{padding:"10px 14px",borderBottom:"1px solid #2a2d3e"}}>
+            <form onSubmit={createScript}>
+              <input
+                type="text"
+                placeholder="New script name"
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                style={{width:"100%",marginBottom:8}}
+              />
+              <button type="submit" className="btn btn-primary" style={{width:"100%"}} disabled={creating}>
+                {creating ? "Creating…" : "+ Create"}
+              </button>
+            </form>
+          </div>
+          <div style={{flex:1,overflowY:"auto"}}>
+            {scripts.length === 0 && (
+              <div style={{padding:"16px 14px",color:"#475569",fontSize:12}}>No scripts yet. Create one above.</div>
+            )}
+            {scripts.map(s => (
+              <div
+                key={s.name}
+                className={`script-item${selectedScript?.name === s.name ? " active" : ""}`}
+                onClick={() => selectScript(s.name)}
+              >
+                <div className="script-item-name">{s.name}</div>
+                <div className="script-item-meta">{s.size} bytes · {new Date(s.modified * 1000).toLocaleDateString()}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="editor-wrap">
+          {loadingContent ? (
+            <div className="empty-state" style={{alignSelf:"center",marginTop:"40%"}}>Loading…</div>
+          ) : selectedScript ? (
+            <>
+              <div className="editor-toolbar">
+                <span style={{color:"#64748b",fontSize:12,marginRight:"auto",fontFamily:"monospace"}}>{selectedScript.name}.py</span>
+                <button className="btn btn-primary" onClick={saveScript}>💾 Save</button>
+                <button className="btn btn-success" onClick={runScript}>▶ Run</button>
+                <button className="btn btn-danger" onClick={deleteScript}>✕ Delete</button>
+              </div>
+              <div className="editor-container" ref={editorContainerRef}/>
+            </>
+          ) : (
+            <div className="empty-state" style={{alignSelf:"center",marginTop:"40%"}}>Select a script or create a new one.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Credentials ────────────────────────────────────────────────────────────
+
+// Structured field definitions per credential type
+const CRED_SCHEMAS = {
+  // ── generic ──────────────────────────────────────────────────────────────
+  generic:    { label:"Generic Secret",          fields:[{k:"secret",  l:"Secret Value",      ph:"any secret value",                secret:true}] },
+
+  // ── messaging / notifications ─────────────────────────────────────────────
+  slack:      { label:"Slack Incoming Webhook",  fields:[{k:"webhook_url", l:"Webhook URL",   ph:"https://hooks.slack.com/services/T…/B…/…", secret:true}] },
+  webhook:    { label:"Webhook URL",             fields:[{k:"url",         l:"Webhook URL",   ph:"https://discord.com/api/webhooks/…",        secret:true}] },
+  telegram:   { label:"Telegram Bot",            fields:[{k:"secret",  l:"Bot Token",         ph:"123456:ABC…",                     secret:true},
+                                                         {k:"chat_id", l:"Default Chat ID",   ph:"-100123456789"}] },
+
+  // ── HTTP / API auth ───────────────────────────────────────────────────────
+  api_key:    { label:"API Key / Bearer Token",  fields:[{k:"key",      l:"API Key / Token",  ph:"sk-… or eyJ…",                   secret:true},
+                                                         {k:"header",   l:"Header name",      ph:"Authorization"}] },
+  basic_auth: { label:"HTTP Basic Auth",         fields:[{k:"username", l:"Username",         ph:"admin"},
+                                                         {k:"password", l:"Password",         ph:"••••••••",                        secret:true}] },
+  openai_api: { label:"OpenAI / LLM API Key",   fields:[{k:"secret",   l:"API Key",          ph:"sk-…",                            secret:true},
+                                                         {k:"base_url", l:"Base URL (optional)", ph:"https://api.openai.com/v1"}] },
+
+  // ── email ─────────────────────────────────────────────────────────────────
+  smtp:       { label:"SMTP Server",             fields:[{k:"host",    l:"Host",              ph:"smtp.gmail.com"},
+                                                         {k:"port",    l:"Port",              ph:"465"},
+                                                         {k:"user",    l:"Username",          ph:"you@gmail.com"},
+                                                         {k:"pass",    l:"Password",          ph:"app-password",                    secret:true}] },
+
+  // ── infrastructure ────────────────────────────────────────────────────────
+  ssh:        { label:"SSH Server",              fields:[{k:"host",    l:"Host / IP",         ph:"192.168.1.1"},
+                                                         {k:"port",    l:"Port",              ph:"22"},
+                                                         {k:"username",l:"Username",          ph:"admin"},
+                                                         {k:"password",l:"Password",          ph:"••••••••",                        secret:true},
+                                                         {k:"key",     l:"Private Key (PEM, optional)", ph:"-----BEGIN RSA PRIVATE KEY-----…", textarea:true}] },
+  sftp:       { label:"SFTP / FTP Server",       fields:[{k:"protocol",l:"Protocol",         ph:"sftp", select:["sftp","ftp"]},
+                                                         {k:"host",    l:"Host / IP",         ph:"files.example.com"},
+                                                         {k:"port",    l:"Port",              ph:"22 (sftp) · 21 (ftp)"},
+                                                         {k:"username",l:"Username",          ph:"ftpuser"},
+                                                         {k:"password",l:"Password",          ph:"••••••••",                        secret:true}] },
+  aws:        { label:"AWS Credentials",         fields:[{k:"access_key_id",     l:"Access Key ID",     ph:"AKIAIOSFODNN7EXAMPLE"},
+                                                         {k:"secret_access_key", l:"Secret Access Key", ph:"wJalrXUt…",            secret:true},
+                                                         {k:"region",            l:"Default Region",    ph:"us-east-1"}] },
+};
+
+
+// Build blank sub-field state for a given type
+function blankSubFields(type) {
+  const schema = CRED_SCHEMAS[type] || CRED_SCHEMAS.generic;
+  return Object.fromEntries(schema.fields.map(f => [f.k, '']));
+}
+
+// Serialize sub-fields to the `secret` string stored in DB
+function encodeSecret(type, subFields) {
+  const schema = CRED_SCHEMAS[type] || CRED_SCHEMAS.generic;
+  if (schema.fields.length === 1 && schema.fields[0].k === 'secret') {
+    return subFields.secret || '';
+  }
+  // Structured: JSON-encode all non-empty fields
+  const obj = {};
+  schema.fields.forEach(f => { if (subFields[f.k]) obj[f.k] = subFields[f.k]; });
+  return JSON.stringify(obj);
+}
+
+// Human-readable summary of stored fields (for table display)
+function credFieldSummary(type) {
+  const schema = CRED_SCHEMAS[type] || CRED_SCHEMAS.generic;
+  if (schema.fields.length === 1) return null;
+  return schema.fields.filter(f=>!f.secret).map(f=>f.l).join(' · ');
+}
+
+function Credentials({ showToast }) {
+  const [credentials, setCredentials] = useState([]);
+  const [form, setForm] = useState({name:"", type:"generic", note:"", sub: blankSubFields("generic")});
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    try { setCredentials(await api("GET","/api/credentials")); }
+    catch(e) { showToast(e.message,"error"); }
+    setLoading(false);
+  }, []);
+
+  useEffect(()=>{ load(); },[]);
+
+  const validateName = (name) => /^[a-zA-Z0-9_-]+$/.test(name);
+
+  function changeType(t) {
+    setForm(f => ({...f, type:t, sub: blankSubFields(t)}));
+  }
+
+  async function create(e) {
+    e.preventDefault();
+    if(!form.name.trim()) { showToast("Name required","error"); return }
+    if(!validateName(form.name)) { showToast("Name may only contain letters, numbers, hyphens, underscores","error"); return }
+    const secret = encodeSecret(form.type, form.sub);
+    if(!secret.trim()) { showToast("At least one field is required","error"); return }
+    try {
+      await api("POST","/api/credentials",{name:form.name, type:form.type, secret, note:form.note});
+      setForm({name:"", type:"generic", note:"", sub: blankSubFields("generic")});
+      load();
+      showToast("Credential created");
+    } catch(err) { showToast(err.message,"error"); }
+  }
+
+  async function del(id) {
+    if(!window.confirm("Delete this credential? This cannot be undone.")) return;
+    try { await api("DELETE",`/api/credentials/${id}`); load(); showToast("Deleted"); }
+    catch(e) { showToast(e.message,"error"); }
+  }
+
+  const schema = CRED_SCHEMAS[form.type] || CRED_SCHEMAS.generic;
+
+  // Usage hint shown in the info box based on selected type
+  const usageHints = {
+    generic:    <>Use <code style={{color:"#a78bfa"}}>{"{{creds.name}}"}</code> to inject the secret value anywhere in a node config.</>,
+    slack:      <>In the Slack node set <strong>Webhook URL</strong> to <code style={{color:"#a78bfa"}}>{"{{creds.name.webhook_url}}"}</code>. The URL is stored encrypted.</>,
+    webhook:    <>Use <code style={{color:"#a78bfa"}}>{"{{creds.name.url}}"}</code> in any node field that accepts a URL (e.g. HTTP Request, Slack).</>,
+    telegram:   <>Use <code style={{color:"#a78bfa"}}>{"{{creds.name}}"}</code> for the token, <code style={{color:"#a78bfa"}}>{"{{creds.name.chat_id}}"}</code> for the chat ID in Telegram nodes.</>,
+    api_key:    <>In HTTP Request headers use <code style={{color:"#a78bfa"}}>{'{"Authorization":"Bearer {{creds.name.key}}"}'}</code>. <code style={{color:"#a78bfa"}}>{"{{creds.name.header}}"}</code> gives the header name if set.</>,
+    basic_auth: <>In HTTP Request headers use <code style={{color:"#a78bfa"}}>{'{"Authorization":"Basic <base64>"}'}</code>, or reference <code style={{color:"#a78bfa"}}>{"{{creds.name.username}}"}</code> and <code style={{color:"#a78bfa"}}>{"{{creds.name.password}}"}</code> directly.</>,
+    openai_api: <>Use <code style={{color:"#a78bfa"}}>{"{{creds.name}}"}</code> as the API key in LLM Call nodes. Set <code style={{color:"#a78bfa"}}>{"{{creds.name.base_url}}"}</code> as the API base for non-OpenAI providers.</>,
+    smtp:       <>In Send Email nodes set <strong>SMTP Credential</strong> to <code style={{color:"#a78bfa"}}>name</code>. Fields are filled automatically. Or reference: <code style={{color:"#a78bfa"}}>{"{{creds.name.host}}"}</code>, <code style={{color:"#a78bfa"}}>{"{{creds.name.user}}"}</code>.</>,
+    ssh:        <>In SSH nodes set <strong>SSH Credential</strong> to <code style={{color:"#a78bfa"}}>name</code>. Fields are filled automatically. Or reference: <code style={{color:"#a78bfa"}}>{"{{creds.name.host}}"}</code>, <code style={{color:"#a78bfa"}}>{"{{creds.name.username}}"}</code>.</>,
+    sftp:       <>In SFTP nodes set <strong>SFTP Credential</strong> to <code style={{color:"#a78bfa"}}>name</code>. Fields are filled automatically. Or reference: <code style={{color:"#a78bfa"}}>{"{{creds.name.host}}"}</code>, <code style={{color:"#a78bfa"}}>{"{{creds.name.username}}"}</code>.</>,
+    aws:        <>Reference fields directly: <code style={{color:"#a78bfa"}}>{"{{creds.name.access_key_id}}"}</code>, <code style={{color:"#a78bfa"}}>{"{{creds.name.secret_access_key}}"}</code>, <code style={{color:"#a78bfa"}}>{"{{creds.name.region}}"}</code>.</>,
+  };
+
+  return (
+    <div>
+      <h1 className="page-title">Credentials</h1>
+      <div className="info-box">
+        🔑 Secrets are never exposed in flow exports or logs.&nbsp;
+        {usageHints[form.type] || usageHints.generic}
+      </div>
+      <div className="card">
+        <div className="card-title">New Credential</div>
+        <form onSubmit={create}>
+          <div className="form-row">
+            <div className="form-group">
+              <label>Name <span style={{color:"#64748b",fontWeight:400}}>(unique · letters, numbers, hyphens, underscores)</span></label>
+              <input required value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="my-smtp-server"/>
+            </div>
+            <div className="form-group">
+              <label>Type</label>
+              <select value={form.type} onChange={e=>changeType(e.target.value)}>
+                <optgroup label="Generic">
+                  <option value="generic">Generic Secret</option>
+                </optgroup>
+                <optgroup label="Messaging &amp; Notifications">
+                  <option value="slack">Slack Incoming Webhook</option>
+                  <option value="webhook">Webhook URL (Discord, Teams…)</option>
+                  <option value="telegram">Telegram Bot</option>
+                </optgroup>
+                <optgroup label="HTTP / API Auth">
+                  <option value="api_key">API Key / Bearer Token</option>
+                  <option value="basic_auth">HTTP Basic Auth</option>
+                  <option value="openai_api">OpenAI / LLM API Key</option>
+                </optgroup>
+                <optgroup label="Email">
+                  <option value="smtp">SMTP Server</option>
+                </optgroup>
+                <optgroup label="Infrastructure">
+                  <option value="ssh">SSH Server</option>
+                  <option value="sftp">SFTP / FTP Server</option>
+                  <option value="aws">AWS Credentials</option>
+                </optgroup>
+              </select>
+            </div>
+          </div>
+          {/* Type-specific fields */}
+          <div style={{background:"#0f1117",border:"1px solid #1e2130",borderRadius:8,padding:"14px 16px",marginBottom:12}}>
+            <div style={{fontSize:11,color:"#64748b",marginBottom:10,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em"}}>{schema.label}</div>
+            <div className="form-row" style={{flexWrap:"wrap"}}>
+              {schema.fields.map(f => (
+                <div key={f.k} className="form-group" style={{minWidth:f.textarea||f.k==="key"?"100%":"180px",flex:f.textarea||f.k==="key"?"1 1 100%":"1 1 180px"}}>
+                  <label>{f.l}</label>
+                  {f.select ? (
+                    <select value={form.sub[f.k]||f.select[0]} onChange={e=>setForm({...form,sub:{...form.sub,[f.k]:e.target.value}})}>
+                      {f.select.map(o=><option key={o} value={o}>{o}</option>)}
+                    </select>
+                  ) : f.textarea ? (
+                    <textarea rows={3} value={form.sub[f.k]||""} onChange={e=>setForm({...form,sub:{...form.sub,[f.k]:e.target.value}})} placeholder={f.ph} style={{fontFamily:"monospace",fontSize:12}}/>
+                  ) : (
+                    <input type={f.secret?"password":"text"} value={form.sub[f.k]||""} onChange={e=>setForm({...form,sub:{...form.sub,[f.k]:e.target.value}})} placeholder={f.ph}/>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="form-group">
+            <label>Note <span style={{color:"#64748b",fontWeight:400}}>(optional)</span></label>
+            <input value={form.note} onChange={e=>setForm({...form,note:e.target.value})} placeholder="e.g. Production server · rotates monthly"/>
+          </div>
+          <button type="submit" className="btn btn-primary">+ Create</button>
+        </form>
+      </div>
+      <div className="card">
+        <div className="card-title">Your Credentials</div>
+        {loading ? <div className="empty-state">Loading…</div> : credentials.length === 0 ? (
+          <div className="empty-state">No credentials yet. Create one above to get started.</div>
+        ) : (
+          <table>
+            <thead><tr><th>Name</th><th>Type</th><th>Fields</th><th>Note</th><th>Created</th><th></th></tr></thead>
+            <tbody>
+              {credentials.map(c=>(
+                <tr key={c.id}>
+                  <td><code className="badge-credential" style={{background:"#0f1117",color:"#a78bfa"}}>{c.name}</code></td>
+                  <td><span className={`badge-credential ${typeColors[c.type]||"generic"}`}>{c.type}</span></td>
+                  <td style={{color:"#475569",fontSize:11}}>{credFieldSummary(c.type) || <span style={{color:"#334155"}}>••••••••</span>}</td>
+                  <td style={{color:"#64748b",fontSize:12}}>{c.note||"—"}</td>
+                  <td style={{color:"#64748b",fontSize:12}}>{new Date(c.created_at).toLocaleString()}</td>
+                  <td><button className="btn btn-danger" onClick={()=>del(c.id)}>✕</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Schedules ─────────────────────────────────────────────────────────────
+function Schedules({ showToast }) {
+  const [schedules, setSchedules] = useState([]);
+  const [form, setForm] = useState({name:"",workflow:"",cron:"0 9 * * *",payload:"{}",timezone:"UTC"});
+
+  const load = async () => { try { setSchedules(await api("GET","/api/schedules")); } catch(e){} };
+  useEffect(()=>{ load(); },[]);
+
+  async function create(e) {
+    e.preventDefault();
+    try {
+      await api("POST","/api/schedules",{...form,payload:JSON.parse(form.payload||"{}")});
+      setForm({name:"",workflow:"",cron:"0 9 * * *",payload:"{}",timezone:"UTC"});
+      load(); showToast("Schedule created");
+    } catch(err) { showToast(err.message,"error"); }
+  }
+  async function toggle(id) { try { await api("POST",`/api/schedules/${id}/toggle`); load(); } catch(e){ showToast(e.message,"error"); }}
+  async function del(id)    { try { await api("DELETE",`/api/schedules/${id}`); load(); } catch(e){ showToast(e.message,"error"); }}
+
+  return (
+    <div>
+      <h1 className="page-title">Schedules</h1>
+      <div className="card">
+        <div className="card-title">New Schedule</div>
+        <form onSubmit={create}>
+          <div className="form-row">
+            <div className="form-group"><label>Name</label><input required value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="Daily digest"/></div>
+            <div className="form-group"><label>Workflow / Graph name</label><input required value={form.workflow} onChange={e=>setForm({...form,workflow:e.target.value})} placeholder="example"/></div>
+          </div>
+          <div className="form-row">
+            <div className="form-group"><label>Cron</label><input required value={form.cron} onChange={e=>setForm({...form,cron:e.target.value})} placeholder="0 9 * * *"/></div>
+            <div className="form-group"><label>Timezone</label><input value={form.timezone} onChange={e=>setForm({...form,timezone:e.target.value})} placeholder="UTC"/></div>
+          </div>
+          <div className="form-group"><label>Payload (JSON)</label><input value={form.payload} onChange={e=>setForm({...form,payload:e.target.value})} placeholder="{}"/></div>
+          <button type="submit" className="btn btn-primary">+ Create</button>
+        </form>
+      </div>
+      <div className="card">
+        <div className="card-title">Scheduled Jobs</div>
+        {schedules.length===0 ? <div className="empty-state">No schedules yet.</div> : (
+          <table>
+            <thead><tr><th>Name</th><th>Workflow</th><th>Cron</th><th>Timezone</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              {schedules.map(s=>(
+                <tr key={s.id}>
+                  <td>{s.name}</td>
+                  <td style={{fontFamily:"monospace",fontSize:12}}>{s.workflow}</td>
+                  <td style={{fontFamily:"monospace",fontSize:12}}>{s.cron}</td>
+                  <td>{s.timezone}</td>
+                  <td><span className={`badge ${s.enabled?"badge-succeeded":"badge-cancelled"}`}>{s.enabled?"active":"paused"}</span></td>
+                  <td><div style={{display:"flex",gap:6}}>
+                    <button className="btn btn-ghost" onClick={()=>toggle(s.id)}>{s.enabled?"Pause":"Resume"}</button>
+                    <button className="btn btn-danger" onClick={()=>del(s.id)}>✕</button>
+                  </div></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Logs ──────────────────────────────────────────────────────────────────
+function Logs({ showToast }) {
+  const [runs, setRuns]           = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [selected, setSelected]   = useState(null);
+  const [search, setSearch]       = useState("");
+  const [statusFilter, setStatus] = useState("all");
+
+  const load = async () => {
+    try { setRuns(await api("GET","/api/runs")); }
+    catch(e){ showToast(e.message,"error"); }
+    setLoading(false);
+  };
+  useEffect(()=>{ load(); },[]);
+
+  const STATUS_COLOR = {succeeded:"#4ade80",failed:"#f87171",running:"#34d399",queued:"#60a5fa",cancelled:"#9ca3af"};
+  const TRACE_DOT    = {ok:"#4ade80",error:"#f87171",skipped:"#64748b"};
+
+  const filtered = runs.filter(r => {
+    if (statusFilter !== "all" && r.status !== statusFilter) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      return (r.flow_name||"").toLowerCase().includes(q) || String(r.id).includes(q);
+    }
+    return true;
+  });
+
+  function fmtTs(ts) {
+    if (!ts) return "—";
+    try { return new Date(ts).toLocaleString(); } catch { return ts; }
+  }
+  function fmtDur(ms) {
+    if (!ms && ms !== 0) return "—";
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms/1000).toFixed(1)}s`;
+  }
+
+  const selRun = selected != null ? runs.find(r=>r.id===selected) : null;
+  const traces = selRun?.traces || [];
+
+  return (
+    <div>
+      <h1 className="page-title">Run Logs</h1>
+      <div className="info-box" style={{marginBottom:16}}>
+        Per-node execution traces for every run. Each entry shows status, duration, retries,
+        and the input/output at each step. Data is stored in the database — there are no
+        separate log files.
+      </div>
+
+      {/* Filter bar */}
+      <div style={{display:"flex",gap:8,marginBottom:16,alignItems:"center"}}>
+        <input placeholder="Search by flow name or run ID…" value={search}
+          onChange={e=>setSearch(e.target.value)}
+          style={{maxWidth:280,flex:"none"}}/>
+        <select value={statusFilter} onChange={e=>setStatus(e.target.value)} style={{width:130,flex:"none"}}>
+          <option value="all">All statuses</option>
+          <option value="succeeded">Succeeded</option>
+          <option value="failed">Failed</option>
+          <option value="running">Running</option>
+          <option value="queued">Queued</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+        <button className="btn btn-ghost" onClick={load}>↻ Refresh</button>
+        <span style={{marginLeft:"auto",fontSize:12,color:"#64748b"}}>{filtered.length} run{filtered.length!==1?"s":""}</span>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"340px 1fr",gap:16,alignItems:"start"}}>
+        {/* Run list */}
+        <div style={{background:"#1a1d2e",border:"1px solid #2a2d3e",borderRadius:10,overflow:"hidden"}}>
+          {loading && <div className="empty-state" style={{padding:"30px 0"}}>Loading…</div>}
+          {!loading && filtered.length===0 && <div className="empty-state" style={{padding:"30px 0"}}>No runs match.</div>}
+          {filtered.map(r=>(
+            <div key={r.id} onClick={()=>setSelected(r.id===selected?null:r.id)}
+              style={{padding:"10px 14px",borderBottom:"1px solid #1e2235",cursor:"pointer",
+                background:selected===r.id?"#252840":"transparent",
+                borderLeft:`3px solid ${selected===r.id?"#7c3aed":"transparent"}`,
+                transition:"background .12s"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+                <span style={{fontWeight:600,fontSize:13,color:"#e2e8f0"}}>
+                  {r.flow_name || `run #${r.id}`}
+                </span>
+                <span style={{fontSize:11,fontWeight:600,color:STATUS_COLOR[r.status]||"#94a3b8"}}>
+                  {r.status}
+                </span>
+              </div>
+              <div style={{fontSize:11,color:"#64748b"}}>
+                #{r.id} · {fmtTs(r.started_at)}
+                {(r.traces||[]).length > 0 &&
+                  <span style={{marginLeft:6}}>{r.traces.length} node{r.traces.length!==1?"s":""}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Trace detail */}
+        <div>
+          {!selRun
+            ? <div className="empty-state" style={{paddingTop:60,background:"#1a1d2e",border:"1px solid #2a2d3e",borderRadius:10}}>
+                ← Select a run to view its node traces
+              </div>
+            : <>
+                <div className="card" style={{marginBottom:12}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div>
+                      <div style={{fontSize:15,fontWeight:700,color:"#e2e8f0",marginBottom:4}}>
+                        {selRun.flow_name || `Run #${selRun.id}`}
+                      </div>
+                      <div style={{fontSize:12,color:"#64748b"}}>
+                        Started: {fmtTs(selRun.started_at)}
+                        {selRun.finished_at && <> · Finished: {fmtTs(selRun.finished_at)}</>}
+                      </div>
+                    </div>
+                    <span style={{fontSize:12,fontWeight:700,padding:"4px 10px",borderRadius:20,
+                      background:selRun.status==="succeeded"?"#14532d":selRun.status==="failed"?"#3f1111":"#1e3a5f",
+                      color:STATUS_COLOR[selRun.status]||"#94a3b8"}}>
+                      {selRun.status}
+                    </span>
+                  </div>
+                  {selRun.error && <div style={{marginTop:10,padding:"8px 10px",background:"#3f1111",borderRadius:6,fontSize:12,color:"#f87171"}}>{selRun.error}</div>}
+                </div>
+
+                {traces.length===0
+                  ? <div className="empty-state" style={{padding:"30px 0",background:"#1a1d2e",border:"1px solid #2a2d3e",borderRadius:10}}>No trace data for this run.</div>
+                  : <div className="trace-table">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th style={{width:18}}></th>
+                            <th>Node</th>
+                            <th>Type</th>
+                            <th>Duration</th>
+                            <th>Attempts</th>
+                            <th>Input / Output</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {traces.map((t,i)=>(
+                            <TraceRow key={i} t={t} fmtDur={fmtDur} dot={TRACE_DOT}/>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                }
+              </>
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TraceRow({ t, fmtDur, dot }) {
+  const [open, setOpen] = useState(false);
+  const hasDetail = t.input || t.output || t.error;
+  return (
+    <>
+      <tr className="expandable-row" onClick={()=>hasDetail&&setOpen(o=>!o)}
+        style={{cursor:hasDetail?"pointer":"default"}}>
+        <td><span className="trace-status-dot" style={{background:dot[t.status]||"#64748b"}}/></td>
+        <td style={{color:"#e2e8f0",fontWeight:500}}>{t.label||t.node_id}</td>
+        <td style={{fontFamily:"monospace",fontSize:11,color:"#94a3b8"}}>{t.type}</td>
+        <td style={{color:"#94a3b8"}}>{fmtDur(t.duration_ms)}</td>
+        <td style={{color:"#94a3b8",textAlign:"center"}}>{t.attempts||1}</td>
+        <td style={{color:t.status==="error"?"#f87171":"#64748b",fontSize:11}}>
+          {t.status==="error" ? t.error : (hasDetail ? (open?"▲ hide":"▼ show") : "—")}
+        </td>
+      </tr>
+      {open && hasDetail && (
+        <tr>
+          <td colSpan={6} style={{padding:"0 10px 10px"}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {t.input && <div>
+                <div style={{fontSize:10,color:"#64748b",marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>Input</div>
+                <pre style={{background:"#0a0c14",border:"1px solid #2a2d3e",borderRadius:6,padding:"8px 10px",fontSize:11,color:"#94a3b8",whiteSpace:"pre-wrap",maxHeight:200,overflow:"auto",margin:0}}>
+                  {typeof t.input==="string"?t.input:JSON.stringify(t.input,null,2)}
+                </pre>
+              </div>}
+              {(t.output||t.error) && <div>
+                <div style={{fontSize:10,color:"#64748b",marginBottom:4,textTransform:"uppercase",letterSpacing:".06em"}}>{t.error?"Error":"Output"}</div>
+                <pre style={{background:"#0a0c14",border:`1px solid ${t.error?"#7f1d1d":"#2a2d3e"}`,borderRadius:6,padding:"8px 10px",fontSize:11,color:t.error?"#f87171":"#94a3b8",whiteSpace:"pre-wrap",maxHeight:200,overflow:"auto",margin:0}}>
+                  {t.error || (typeof t.output==="string"?t.output:JSON.stringify(t.output,null,2))}
+                </pre>
+              </div>}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────
+function Settings({ showToast }) {
+  const [resetting, setResetting] = useState(false);
+  async function resetSeqs() {
+    if (!window.confirm("Reset ID sequences? Only safe when all tables are empty.")) return;
+    setResetting(true);
+    try { await api("POST","/api/maintenance/reset_sequences"); showToast("Sequences reset"); }
+    catch(e) { showToast(e.message,"error"); }
+    setResetting(false);
+  }
+  return (
+    <div>
+      <h1 className="page-title">Settings</h1>
+      <div className="card">
+        <div className="card-title">Admin Token</div>
+        <p style={{fontSize:13,color:"#94a3b8",marginBottom:12}}>Your admin token is passed as a URL query param (<code style={{color:"#a78bfa"}}>?token=...</code>) and as the <code style={{color:"#a78bfa"}}>x-admin-token</code> header.</p>
+        <code style={{display:"block",padding:"10px 12px",background:"#0f1117",borderRadius:6,fontSize:13,color:"#a78bfa",userSelect:"all"}}>{TOKEN || "(no token set)"}</code>
+      </div>
+      <div className="card">
+        <div className="card-title">Node Canvas</div>
+        <p style={{fontSize:13,color:"#94a3b8",marginBottom:12}}>Open the visual workflow builder.</p>
+        <button className="btn btn-primary" onClick={()=>window.open(`/canvas?token=${TOKEN}`)}>Open Canvas →</button>
+      </div>
+      <div className="card">
+        <div className="card-title">External Links</div>
+        <div style={{display:"flex",gap:10}}>
+          <a href="/flower/" target="_blank" className="btn btn-ghost">Flower monitor ↗</a>
+          <a href="/docs" target="_blank" className="btn btn-ghost">Swagger docs ↗</a>
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-title">Maintenance</div>
+        <p style={{fontSize:13,color:"#94a3b8",marginBottom:12}}>Reset PostgreSQL ID sequences. Only run this when all tables are empty.</p>
+        <button className="btn btn-danger" disabled={resetting} onClick={resetSeqs}>{resetting?"Resetting…":"Reset sequences"}</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Graphs ────────────────────────────────────────────────────────────────
+function Graphs({ showToast }) {
+  const [graphs, setGraphs]     = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [running, setRunning]   = useState(null);
+  const [search, setSearch]     = useState("");
+  const [reseeding, setReseeding] = useState(false);
+
+  const load = useCallback(async () => {
+    try { setGraphs(await api("GET","/api/graphs")); }
+    catch(e) { showToast(e.message,"error"); }
+    setLoading(false);
+  }, []);
+  useEffect(()=>{ load(); },[]);
+
+  async function reseedExamples() {
+    if(!window.confirm("Re-seed all example flows? Missing examples will be restored; existing ones are left unchanged.")) return;
+    setReseeding(true);
+    try { await api("POST","/api/graphs/reseed"); showToast("Examples re-seeded"); load(); }
+    catch(e) { showToast(e.message,"error"); }
+    setReseeding(false);
+  }
+
+  async function renameGraph(g) {
+    const newName = window.prompt("Rename flow:", g.name);
+    if(!newName || newName.trim() === g.name) return;
+    try { await api("PUT",`/api/graphs/${g.id}`,{name:newName.trim()}); showToast("Renamed"); load(); }
+    catch(e) { showToast(e.message,"error"); }
+  }
+
+  async function runGraph(id, name) {
+    setRunning(id);
+    try { await api("POST",`/api/graphs/${id}/run`,{source:"admin"}); showToast(`Queued: ${name}`); }
+    catch(e) { showToast(e.message,"error"); }
+    setRunning(null);
+  }
+
+  async function toggleGraph(id, enabled) {
+    try { await api("PUT",`/api/graphs/${id}`,{enabled:!enabled}); load(); showToast(enabled?"Disabled":"Enabled"); }
+    catch(e) { showToast(e.message,"error"); }
+  }
+
+  async function duplicateGraph(g) {
+    try {
+      const full = await api("GET",`/api/graphs/${g.id}`);
+      const baseName = full.name.replace(/^[📧🤖🔄⚠⚡🔍🧪📊🐍⏰💻📁]\s*/u,"");
+      const copy = await api("POST","/api/graphs",{
+        name: baseName + " (copy)",
+        description: full.description || "",
+        graph_data: full.graph_data || {}
+      });
+      showToast(`Duplicated as "${copy.name}"`); load();
+    } catch(e) { showToast(e.message,"error"); }
+  }
+
+  async function deleteGraph(id, name) {
+    if(!window.confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    try { await api("DELETE",`/api/graphs/${id}`); showToast("Deleted"); load(); }
+    catch(e) { showToast(e.message,"error"); }
+  }
+
+  const EXAMPLE_RE = /^[📧🤖🔄⚠⚡🔍🧪📊🐍⏰💻📁]/u;
+  const isExample = (name) => EXAMPLE_RE.test(name);
+
+  const q = search.toLowerCase();
+  const filtered = graphs.filter(g => !q || g.name.toLowerCase().includes(q) || (g.description||"").toLowerCase().includes(q));
+  const exampleFlows = filtered.filter(g=>isExample(g.name));
+  const userFlows    = filtered.filter(g=>!isExample(g.name));
+
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+        <h1 className="page-title" style={{marginBottom:0}}>Canvas Flows</h1>
+        <div style={{display:"flex",gap:8}}>
+          <button className="btn btn-ghost" disabled={reseeding} onClick={reseedExamples} title="Restore any missing example flows">
+            {reseeding ? "Reseeding…" : "↺ Restore examples"}
+          </button>
+          <a href={`/canvas?token=${TOKEN}`} className="btn btn-primary">+ New in Canvas</a>
+        </div>
+      </div>
+
+      <div style={{marginBottom:16}}>
+        <input style={{width:"100%",background:"#1a1d2e",color:"#e2e8f0",border:"1px solid #2a2d3e",borderRadius:8,padding:"8px 12px",fontSize:13}}
+          placeholder="🔍  Search flows…" value={search} onChange={e=>setSearch(e.target.value)}/>
+      </div>
+
+      {loading ? <div className="empty-state">Loading…</div> :
+       graphs.length === 0 ? (
+        <div className="card">
+          <div className="empty-state" style={{padding:"40px 0"}}>
+            No graphs yet.<br/>
+            <a href={`/canvas?token=${TOKEN}`} style={{color:"#a78bfa",textDecoration:"none",marginTop:8,display:"inline-block"}}>Open the canvas to create your first flow →</a>
+          </div>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="card"><div className="empty-state">No flows match "{search}".</div></div>
+      ) : (
+        <div>
+          {/* ── example graphs ── */}
+          {exampleFlows.length > 0 && (
+            <div className="card" style={{marginBottom:16}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                <div className="card-title" style={{marginBottom:0}}>Example Flows <span style={{fontSize:11,color:"#64748b",fontWeight:400}}>({exampleFlows.length})</span></div>
+                <span style={{fontSize:11,color:"#64748b"}}>Duplicate to make your own copy</span>
+              </div>
+              {exampleFlows.map(g=>(
+                <GraphRow key={g.id} g={g} running={running} onRun={runGraph} onToggle={toggleGraph} onDuplicate={duplicateGraph} onDelete={deleteGraph} onRename={renameGraph} showToast={showToast} load={load} isExample={true}/>
+              ))}
+            </div>
+          )}
+          {/* ── custom graphs ── */}
+          {userFlows.length > 0 && (
+            <div className="card">
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                <div className="card-title" style={{marginBottom:0}}>Your Flows <span style={{fontSize:11,color:"#64748b",fontWeight:400}}>({userFlows.length})</span></div>
+              </div>
+              {userFlows.map(g=>(
+                <GraphRow key={g.id} g={g} running={running} onRun={runGraph} onToggle={toggleGraph} onDuplicate={duplicateGraph} onDelete={deleteGraph} onRename={renameGraph} showToast={showToast} load={load} isExample={false}/>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GraphRow({ g, running, onRun, onToggle, onDuplicate, onDelete, onRename, showToast, load, isExample }) {
+  const [open, setOpen] = useState(false);
+  const [showVersions, setShowVersions] = useState(false);
+  const [versions, setVersions] = useState([]);
+  const [loadingVersions, setLoadingVersions] = useState(false);
+  const nodeCount = ((g.graph_data?.nodes)||[]).filter(n=>n.type!=="note").length;
+
+  async function openVersionHistory() {
+    setLoadingVersions(true);
+    try {
+      const v = await api("GET",`/api/graphs/${g.id}/versions`);
+      setVersions(v);
+      setShowVersions(true);
+    } catch(e) { showToast(e.message,"error"); }
+    setLoadingVersions(false);
+  }
+
+  async function restoreVersion(vid) {
+    if(!window.confirm("Restore this version? Current changes will be lost.")) return;
+    try {
+      await api("POST",`/api/graphs/${g.id}/versions/${vid}/restore`);
+      showToast("Version restored");
+      load();
+      setShowVersions(false);
+    } catch(e) { showToast(e.message,"error"); }
+  }
+
+  return (
+    <>
+      <div style={{borderBottom:"1px solid #1e2235",paddingBottom:12,marginBottom:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+              <span style={{fontWeight:600,fontSize:14,color:"#e2e8f0"}}>{g.name}</span>
+              <span className={`badge ${g.enabled?"badge-succeeded":"badge-cancelled"}`}>{g.enabled?"enabled":"disabled"}</span>
+              <span style={{fontSize:11,color:"#4b5563"}}>#{g.id} · {nodeCount} node{nodeCount!==1?"s":""}</span>
+            </div>
+            {g.description && <div style={{fontSize:12,color:"#64748b"}}>{g.description}</div>}
+          </div>
+          <div style={{display:"flex",gap:6,flex:"none"}}>
+            <a href={`/canvas?token=${TOKEN}`} className="btn btn-ghost"
+               onClick={()=>sessionStorage.setItem("canvas_open_graph",g.id)}>✏️ Edit</a>
+            <button className="btn btn-success" disabled={running===g.id||!g.enabled}
+                    onClick={()=>onRun(g.id,g.name)}>{running===g.id?"…":"▶"}</button>
+            <button className="btn btn-ghost" onClick={()=>setOpen(o=>!o)}>⋯</button>
+          </div>
+        </div>
+        {open && (
+          <div style={{display:"flex",gap:8,marginTop:10,paddingTop:10,borderTop:"1px solid #1e2235",flexWrap:"wrap"}}>
+            <button className="btn btn-ghost" onClick={()=>onRename(g)}>✏ Rename</button>
+            <button className="btn btn-ghost" onClick={()=>onDuplicate(g)}>📋 Duplicate</button>
+            <button className="btn btn-ghost" onClick={openVersionHistory} disabled={loadingVersions}>📜 History</button>
+            <button className="btn btn-ghost" onClick={()=>onToggle(g.id,g.enabled)}>{g.enabled?"⏸ Disable":"▶ Enable"}</button>
+            <div style={{flex:1}}/>
+            <div style={{fontSize:11,color:"#4b5563",alignSelf:"center"}}>
+              Webhook: <code style={{color:"#6b7280"}}>{g.webhook_token?.slice(0,12)}…</code>
+            </div>
+            <button className="btn btn-danger" onClick={()=>onDelete(g.id,g.name)}
+              title={isExample ? "⚠ This is an example flow — use ↺ Restore examples to get it back" : undefined}>
+              🗑 Delete{isExample?" (example)":""}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {showVersions && (
+        <div className="modal-overlay" onClick={e=>{ if(e.target.className==="modal-overlay") setShowVersions(false) }}>
+          <div className="modal">
+            <h2>📜 Version History</h2>
+            {versions.length === 0 ? (
+              <div className="empty-state" style={{padding:"20px 0"}}>No versions yet.</div>
+            ) : (
+              <div style={{marginTop:12}}>
+                {versions.map((v,idx)=>(
+                  <div key={idx} className="version-row">
+                    <div className="version-info">
+                      <div className="version-num">Version {v.version}</div>
+                      <div className="version-date">{new Date(v.saved_at).toLocaleString()}</div>
+                      {v.note && <div className="version-note">{v.note}</div>}
+                    </div>
+                    <button className="btn btn-ghost btn-sm" onClick={()=>restoreVersion(v.version)}>Restore</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="modal-btns">
+              <button className="btn btn-ghost" onClick={()=>setShowVersions(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── Templates ─────────────────────────────────────────────────────────────
+const CATEGORY_COLORS = {
+  "Monitoring":   "#0891b2",
+  "Integrations": "#7c3aed",
+  "Productivity": "#059669",
+  "Reporting":    "#d97706",
+  "AI":           "#8b5cf6",
+  "General":      "#475569",
+};
+
+function Templates({ showToast }) {
+  const [templates, setTemplates] = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [importing, setImporting] = useState(null);
+
+  useEffect(() => {
+    api("GET", "/api/templates")
+      .then(setTemplates)
+      .catch(e => showToast(e.message, "error"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function useTemplate(t) {
+    setImporting(t.id);
+    try {
+      const g = await api("POST", `/api/templates/${t.id}/use`, {});
+      showToast(`Flow "${g.name}" created! Open it in Canvas Flows.`);
+    } catch(e) {
+      showToast("Failed: " + e.message, "error");
+    }
+    setImporting(null);
+  }
+
+  // Group by category
+  const groups = {};
+  templates.forEach(t => {
+    if (!groups[t.category]) groups[t.category] = [];
+    groups[t.category].push(t);
+  });
+
+  return (
+    <div className="page">
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:24}}>
+        <div>
+          <h1 className="page-title" style={{marginBottom:6}}>📐 Workflow Templates</h1>
+          <div style={{fontSize:13,color:"#64748b"}}>Start from a pre-built template — click <strong style={{color:"#94a3b8"}}>Use template</strong> to create a flow, then edit it in Canvas Flows.</div>
+        </div>
+      </div>
+      {loading && <div style={{color:"#64748b",padding:24}}>Loading templates…</div>}
+      {!loading && templates.length === 0 && (
+        <div style={{color:"#64748b",padding:24}}>No templates found. Add JSON files to <code>app/templates/</code>.</div>
+      )}
+      {Object.entries(groups).map(([category, items]) => (
+        <div key={category} style={{marginBottom:32}}>
+          <div style={{fontSize:11,fontWeight:600,color:(CATEGORY_COLORS[category]||"#94a3b8"),
+            textTransform:"uppercase",letterSpacing:".08em",marginBottom:12,paddingBottom:6,
+            borderBottom:`1px solid ${(CATEGORY_COLORS[category]||"#2a2d3e")}44`}}>
+            {category}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))",gap:14}}>
+            {items.map(t => (
+              <div key={t.id} style={{background:"#181b2e",border:"1px solid #2a2d3e",borderRadius:10,
+                padding:"16px 18px",display:"flex",flexDirection:"column",gap:8,
+                transition:"border-color .15s",cursor:"default"}}
+                onMouseEnter={e=>e.currentTarget.style.borderColor=(CATEGORY_COLORS[t.category]||"#7c3aed")}
+                onMouseLeave={e=>e.currentTarget.style.borderColor="#2a2d3e"}>
+                <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8}}>
+                  <div style={{fontWeight:600,color:"#e2e8f0",fontSize:14}}>{t.name}</div>
+                  <span style={{fontSize:10,color:(CATEGORY_COLORS[t.category]||"#475569"),
+                    background:(CATEGORY_COLORS[t.category]||"#475569")+"22",
+                    borderRadius:4,padding:"2px 7px",whiteSpace:"nowrap"}}>{t.category}</span>
+                </div>
+                <div style={{fontSize:12,color:"#94a3b8",lineHeight:1.6}}>{t.description}</div>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:4}}>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {(t.tags||[]).map(tag=>(
+                      <span key={tag} style={{fontSize:10,color:"#64748b",background:"#0f1117",
+                        borderRadius:3,padding:"1px 6px",border:"1px solid #2a2d3e"}}>{tag}</span>
+                    ))}
+                    <span style={{fontSize:10,color:"#4b5563"}}>
+                      {t.node_count} node{t.node_count!==1?"s":""}
+                    </span>
+                  </div>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={importing === t.id}
+                    onClick={()=>useTemplate(t)}
+                    style={{minWidth:80}}>
+                    {importing===t.id ? "Importing…" : "Use template"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── App shell ─────────────────────────────────────────────────────────────
+const PAGES = [
+  {id:"dashboard",  icon:"⬛", label:"Dashboard"},
+  {id:"graphs",     icon:"🎨", label:"Canvas Flows"},
+  {id:"templates",  icon:"📐", label:"Templates"},
+  {id:"metrics",    icon:"📊", label:"Metrics"},
+  {id:"scripts",    icon:"🐍", label:"Scripts"},
+  {id:"credentials",icon:"🔑", label:"Credentials"},
+  {id:"schedules",  icon:"⏰", label:"Schedules"},
+  {id:"logs",       icon:"📋", label:"Logs"},
+  {id:"settings",   icon:"⚙",  label:"Settings"},
+];
+
+function App() {
+  const validIds = PAGES.map(p=>p.id);
+  const hashPage = () => {
+    const h = window.location.hash.slice(1);
+    return validIds.includes(h) ? h : "dashboard";
+  };
+  const [page, setPageState] = useState(hashPage);
+  const [toast, setToast]    = useState(null);
+  const showToast = useCallback((msg, type="success") => setToast({msg,type,key:Date.now()}), []);
+
+  // Keep hash in sync with page state
+  const setPage = useCallback((id) => {
+    window.location.hash = id;
+    setPageState(id);
+  }, []);
+
+  // Handle browser back/forward
+  useEffect(() => {
+    const onHashChange = () => setPageState(hashPage());
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  return (
+    <>
+      <div className="sidebar">
+        <div className="logo">⚡ HiveRunr</div>
+        {PAGES.map(p=>(
+          <div key={p.id} className={`nav-item${page===p.id?" active":""}`} onClick={()=>setPage(p.id)}>
+            <span className="nav-icon">{p.icon}</span>{p.label}
+          </div>
+        ))}
+        <div className="sidebar-footer">
+          <div className="footer-label">Quick links</div>
+          <a className="ext-link" href={`/canvas?token=${TOKEN}`}>
+            <span className="el-icon">🎨</span>Node Canvas
+          </a>
+          <a className="ext-link" href="/flower/" target="_blank" rel="noopener">
+            <span className="el-icon">🌸</span>Flower / Celery
+          </a>
+          <a className="ext-link" href="/docs" target="_blank" rel="noopener">
+            <span className="el-icon">📖</span>API Docs
+          </a>
+          <a className="ext-link" href="/health" target="_blank" rel="noopener">
+            <span className="el-icon">💚</span>Health check
+          </a>
+        </div>
+      </div>
+      <div className="main">
+        {page==="dashboard"  && <Dashboard  showToast={showToast}/>}
+        {page==="graphs"     && <Graphs     showToast={showToast}/>}
+        {page==="templates"  && <Templates  showToast={showToast}/>}
+        {page==="metrics"    && <Metrics    showToast={showToast}/>}
+        {page==="scripts"    && <Scripts    showToast={showToast}/>}
+        {page==="credentials"&& <Credentials showToast={showToast}/>}
+        {page==="schedules"  && <Schedules  showToast={showToast}/>}
+        {page==="logs"       && <Logs       showToast={showToast}/>}
+        {page==="settings"   && <Settings   showToast={showToast}/>}
+      </div>
+      {toast && <Toast key={toast.key} msg={toast.msg} type={toast.type} onDone={()=>setToast(null)}/>}
+    </>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App/>);
+</script>
+</body>
+</head>
+
+

@@ -1,0 +1,74 @@
+{
+  "name": "Google Sheets → Slack Report",
+  "description": "Reads rows from a Google Sheet and sends a formatted summary to Slack on a schedule.",
+  "category": "Reporting",
+  "tags": ["google_sheets", "slack", "report", "cron"],
+  "graph_data": {
+    "nodes": [
+      {
+        "id": "trigger1",
+        "type": "trigger.cron",
+        "position": {"x": 60, "y": 200},
+        "data": {
+          "label": "Every Friday 4pm",
+          "config": {"cron": "0 16 * * 5", "timezone": "UTC", "description": "Fridays at 4pm"},
+          "disabled": false,
+          "retry_max": 0,
+          "retry_delay": 5
+        }
+      },
+      {
+        "id": "sheets1",
+        "type": "action.google_sheets",
+        "position": {"x": 325, "y": 200},
+        "data": {
+          "label": "Read sheet data",
+          "config": {
+            "credential": "my-google-sa",
+            "action": "read_range",
+            "spreadsheet_id": "YOUR_SPREADSHEET_ID",
+            "range": "Sheet1!A1:E50",
+            "header_row": "true"
+          },
+          "disabled": false,
+          "retry_max": 1,
+          "retry_delay": 5
+        }
+      },
+      {
+        "id": "transform1",
+        "type": "action.transform",
+        "position": {"x": 590, "y": 200},
+        "data": {
+          "label": "Summarise rows",
+          "config": {
+            "expression": "{'row_count': input.get('count', 0), 'summary': f\"{input.get('count',0)} rows read from sheet\"}"
+          },
+          "disabled": false,
+          "retry_max": 0,
+          "retry_delay": 5
+        }
+      },
+      {
+        "id": "slack1",
+        "type": "action.slack",
+        "position": {"x": 855, "y": 200},
+        "data": {
+          "label": "Send weekly report",
+          "config": {
+            "credential": "my-slack",
+            "message": ":bar_chart: *Weekly Sheet Report*\n{{transform1.summary}}"
+          },
+          "disabled": false,
+          "retry_max": 0,
+          "retry_delay": 5
+        }
+      }
+    ],
+    "edges": [
+      {"id": "e1", "source": "trigger1", "target": "sheets1", "sourceHandle": null, "targetHandle": null},
+      {"id": "e2", "source": "sheets1", "target": "transform1", "sourceHandle": null, "targetHandle": null},
+      {"id": "e3", "source": "transform1", "target": "slack1", "sourceHandle": null, "targetHandle": null}
+    ]
+  }
+}

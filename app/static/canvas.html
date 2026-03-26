@@ -1,0 +1,1821 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>HiveRunr — Canvas</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/reactflow@11/dist/umd/index.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/reactflow@11/dist/style.css"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',system-ui,sans-serif;background:#0f1117;color:#e2e8f0;height:100vh;overflow:hidden}
+#root{height:100vh;display:flex;flex-direction:column}
+
+/* ── top bar ── */
+.topbar{height:52px;background:#1a1d2e;border-bottom:1px solid #2a2d3e;display:flex;align-items:center;gap:8px;padding:0 14px;flex-shrink:0;z-index:10}
+.topbar .logo{font-weight:700;font-size:15px;color:#a78bfa;margin-right:4px;white-space:nowrap}
+.topbar input.name-input{background:#0f1117;color:#e2e8f0;border:1px solid #2a2d3e;border-radius:6px;padding:5px 10px;font-size:13px;width:180px}
+.topbar input.name-input:focus{outline:none;border-color:#7c3aed}
+.topbar-spacer{flex:1}
+.btn{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:500;border:none;cursor:pointer;transition:all .15s;white-space:nowrap}
+.btn-primary{background:#7c3aed;color:#fff}.btn-primary:hover{background:#6d28d9}
+.btn-success{background:#059669;color:#fff}.btn-success:hover{background:#047857}
+.btn-danger{background:#dc2626;color:#fff}.btn-danger:hover{background:#b91c1c}
+.btn-ghost{background:#2a2d3e;color:#94a3b8}.btn-ghost:hover{background:#374151;color:#e2e8f0}
+.btn-sm{padding:4px 9px;font-size:11px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.tb-divider{width:1px;height:20px;background:#2a2d3e;margin:0 2px}
+
+/* ── error banner ── */
+.error-banner{background:#1f0a0a;border-bottom:1px solid #7f1d1d;padding:8px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0;z-index:9}
+.eb-icon{font-size:16px;color:#f87171;flex-shrink:0}
+.eb-body{flex:1;min-width:0}
+.eb-title{font-size:12px;font-weight:600;color:#f87171}
+.eb-msg{font-size:11px;color:#fca5a5;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.eb-close{background:none;border:none;color:#64748b;cursor:pointer;font-size:16px;padding:0 4px;flex-shrink:0}.eb-close:hover{color:#e2e8f0}
+
+/* ── layout ── */
+.canvas-layout{flex:1;display:flex;overflow:hidden}
+.sidebar{width:210px;background:#1a1d2e;border-right:1px solid #2a2d3e;display:flex;flex-direction:column;flex-shrink:0}
+.sidebar-search{padding:8px 10px;border-bottom:1px solid #2a2d3e}
+.sidebar-search input{width:100%;background:#0f1117;color:#e2e8f0;border:1px solid #2a2d3e;border-radius:6px;padding:5px 9px;font-size:12px;font-family:inherit}
+.sidebar-search input:focus{outline:none;border-color:#7c3aed}
+.sidebar-scroll{flex:1;overflow-y:auto}
+.sidebar-scroll::-webkit-scrollbar{width:3px}
+.sidebar-scroll::-webkit-scrollbar-thumb{background:#2a2d3e;border-radius:3px}
+.sidebar-title{font-size:10px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.08em;padding:10px 12px 5px}
+.node-palette-item{display:flex;align-items:center;gap:9px;padding:7px 12px;cursor:grab;border-radius:5px;margin:1px 5px;transition:background .12s;user-select:none}
+.node-palette-item:hover{background:#2a2d3e}
+.node-palette-item:active{cursor:grabbing}
+.node-icon{width:26px;height:26px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
+.node-label{font-size:11px;color:#cbd5e1;font-weight:500;line-height:1.2}
+.node-sublabel{font-size:10px;color:#64748b;line-height:1.2}
+
+/* ── config panel ── */
+.config-panel{width:290px;background:#1a1d2e;border-left:1px solid #2a2d3e;display:flex;flex-direction:column;flex-shrink:0}
+.config-panel .panel-header{padding:12px 14px;border-bottom:1px solid #2a2d3e;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.config-panel .panel-header h3{font-size:13px;font-weight:600;color:#e2e8f0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.config-panel .panel-body{flex:1;overflow-y:auto;padding:12px 14px}
+.config-panel .panel-body::-webkit-scrollbar{width:4px}
+.config-panel .panel-body::-webkit-scrollbar-track{background:#0f1117}
+.config-panel .panel-body::-webkit-scrollbar-thumb{background:#2a2d3e;border-radius:4px}
+.config-empty{color:#64748b;font-size:12px;text-align:center;margin-top:50px;line-height:1.7}
+.field-group{margin-bottom:12px}
+.field-label{font-size:11px;color:#94a3b8;font-weight:500;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between}
+.field-hint{font-size:10px;color:#64748b;font-weight:400;margin-top:3px;display:block}
+.secret-hint{font-size:10px;color:#a78bfa;margin-top:3px;display:block}
+.field-input{width:100%;background:#0f1117;color:#e2e8f0;border:1px solid #2a2d3e;border-radius:6px;padding:6px 9px;font-size:12px;font-family:inherit;resize:vertical}
+.field-input:focus{outline:none;border-color:#7c3aed}
+.field-input.mono{font-family:'JetBrains Mono','Fira Code',monospace;font-size:11px}
+textarea.field-input{min-height:70px}
+select.field-input{appearance:none;cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 9px center;padding-right:28px}
+.node-id-badge{display:inline-flex;align-items:center;gap:6px;background:#0f1117;border:1px solid #2a2d3e;border-radius:6px;padding:5px 9px;margin-bottom:12px;cursor:pointer;width:100%;justify-content:space-between}
+.node-id-badge:hover{border-color:#7c3aed}
+.node-id-badge code{font-family:'JetBrains Mono','Fira Code',monospace;font-size:11px;color:#a78bfa}
+.node-id-badge .copy-hint{font-size:10px;color:#64748b}
+.section-divider{font-size:10px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px;padding-bottom:5px;border-bottom:1px solid #2a2d3e}
+.delete-node-btn{width:100%;margin-top:10px;padding:7px;background:#1f1f2e;border:1px solid #dc2626;color:#dc2626;border-radius:6px;font-size:12px;cursor:pointer;transition:all .15s}
+.delete-node-btn:hover{background:#dc2626;color:#fff}
+.disable-toggle-row{display:flex;align-items:center;justify-content:space-between;background:#0f1117;border:1px solid #2a2d3e;border-radius:6px;padding:8px 10px;margin-bottom:12px}
+.disable-toggle-label{font-size:12px;color:#94a3b8;font-weight:500}
+.toggle-switch{position:relative;width:36px;height:20px;cursor:pointer;flex-shrink:0}
+.toggle-switch input{opacity:0;width:0;height:0}
+.toggle-track{position:absolute;inset:0;background:#374151;border-radius:20px;transition:background .2s}
+.toggle-thumb{position:absolute;top:3px;left:3px;width:14px;height:14px;background:#fff;border-radius:50%;transition:transform .2s}
+.toggle-switch input:checked+.toggle-track{background:#059669}
+.toggle-switch input:checked~.toggle-thumb,.toggle-switch input:checked+.toggle-track+.toggle-thumb{transform:translateX(16px)}
+
+/* run output panel */
+.run-output-panel{background:#0a0c14;border:1px solid #2a2d3e;border-radius:6px;padding:8px 10px;margin-top:10px}
+.run-output-title{font-size:10px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.run-output-status{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px}
+.run-status-ok{background:#14532d;color:#4ade80}
+.run-status-err{background:#3f1111;color:#f87171}
+.run-status-skip{background:#1e293b;color:#94a3b8}
+.run-output-body{font-size:11px;font-family:'JetBrains Mono','Fira Code',monospace;color:#94a3b8;white-space:pre-wrap;max-height:140px;overflow-y:auto;line-height:1.5}
+
+/* ── flow canvas ── */
+.flow-wrap{flex:1;position:relative;background:#0f1117}
+.reactflow-attribution{display:none}
+.react-flow__background{background:#0f1117}
+.react-flow__controls{background:#1a1d2e;border:1px solid #2a2d3e;border-radius:8px;overflow:hidden}
+.react-flow__controls-button{background:#1a1d2e;border:none;color:#94a3b8;border-bottom:1px solid #2a2d3e}
+.react-flow__controls-button:hover{background:#2a2d3e;color:#e2e8f0}
+.react-flow__minimap{background:#1a1d2e;border:1px solid #2a2d3e;border-radius:8px}
+.react-flow__edge-path{stroke:#4b5563;stroke-width:2}
+.react-flow__edge.selected .react-flow__edge-path{stroke:#7c3aed}
+.react-flow__edge-text{fill:#94a3b8;font-size:11px}
+.react-flow__edge-textbg{fill:#1a1d2e}
+.react-flow__handle{width:10px;height:10px;border-radius:50%;border:2px solid #1a1d2e}
+.react-flow__handle-left{background:#4b5563}
+.react-flow__handle-right{background:#7c3aed}
+.react-flow__handle-bottom{background:#64748b}
+.edge-label-input{background:#1a1d2e;border:1px solid #7c3aed;border-radius:4px;color:#e2e8f0;font-size:11px;padding:3px 7px;outline:none;width:130px}
+
+/* ── custom nodes ── */
+.custom-node{background:#1a1d2e;border:1.5px solid #2a2d3e;border-radius:10px;min-width:170px;box-shadow:0 4px 12px rgba(0,0,0,.4);transition:border-color .15s,opacity .2s}
+.custom-node:hover,.custom-node.selected{border-color:#7c3aed;box-shadow:0 0 0 2px rgba(124,58,237,.2)}
+.custom-node.disabled-node{opacity:.45}
+.custom-node .node-header{display:flex;align-items:center;gap:7px;padding:9px 10px 7px;border-bottom:1px solid #2a2d3e;border-radius:10px 10px 0 0}
+.custom-node .node-header .nh-icon{width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+.custom-node .node-header .nh-title{font-size:11px;font-weight:600;color:#e2e8f0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.custom-node .node-header .nh-type{font-size:9px;color:#64748b;white-space:nowrap}
+.custom-node .node-body{padding:5px 10px;font-size:10px;color:#94a3b8;min-height:22px}
+.custom-node .node-footer{display:flex;align-items:center;justify-content:space-between;padding:3px 10px 6px}
+.custom-node .node-id{font-size:9px;color:#4b5563;font-family:monospace}
+.node-status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.node-status-dot.ok{background:#4ade80;box-shadow:0 0 5px #4ade8080}
+.node-status-dot.err{background:#f87171;box-shadow:0 0 5px #f8717180}
+.node-status-dot.skip{background:#64748b}
+.node-off-chip{background:#374151;color:#94a3b8;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;letter-spacing:.04em}
+
+/* ── sticky note node ── */
+.note-node{background:#854d0e22;border:1.5px solid #854d0e;border-radius:8px;min-width:160px;max-width:240px;box-shadow:0 4px 12px rgba(0,0,0,.3)}
+.note-node.selected{border-color:#ca8a04;box-shadow:0 0 0 2px rgba(202,138,4,.2)}
+.note-node .note-body{padding:10px 12px;font-size:11px;color:#fde68a;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+.note-node .note-id{font-size:9px;color:#78350f;padding:0 10px 6px;font-family:monospace}
+
+/* ── context menu ── */
+.ctx-menu{position:fixed;background:#1a1d2e;border:1px solid #2a2d3e;border-radius:8px;padding:5px 0;min-width:170px;z-index:9000;box-shadow:0 8px 24px rgba(0,0,0,.5);animation:slideIn .1s ease}
+.ctx-item{padding:7px 14px;font-size:12px;color:#cbd5e1;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background .1s}
+.ctx-item:hover{background:#2a2d3e;color:#e2e8f0}
+.ctx-item.danger{color:#f87171}
+.ctx-item.danger:hover{background:#3f1111;color:#f87171}
+.ctx-divider{height:1px;background:#2a2d3e;margin:4px 0}
+.ctx-label{padding:5px 14px 3px;font-size:10px;color:#4b5563;font-weight:600;text-transform:uppercase;letter-spacing:.06em;pointer-events:none}
+
+/* ── toast ── */
+.toast{position:fixed;bottom:20px;right:20px;background:#1a1d2e;border:1px solid #2a2d3e;border-radius:8px;padding:10px 16px;font-size:13px;color:#e2e8f0;z-index:9999;display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.4);animation:slideIn .2s ease}
+.toast.success{border-color:#059669;color:#34d399}
+.toast.error{border-color:#dc2626;color:#f87171}
+@keyframes slideIn{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+/* ── modal ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.modal{background:#1a1d2e;border:1px solid #2a2d3e;border-radius:12px;padding:22px;min-width:360px;max-width:600px;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.modal h2{font-size:15px;font-weight:600;margin-bottom:14px}
+.modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.graph-row{padding:9px 11px;border:1px solid #2a2d3e;border-radius:8px;margin-bottom:7px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;transition:border-color .15s}
+.graph-row:hover{border-color:#7c3aed}
+.graph-row-name{font-size:12px;font-weight:600;color:#e2e8f0}
+.graph-row-desc{font-size:10px;color:#64748b;margin-top:1px}
+.graph-row-badge{font-size:10px;font-weight:600;flex-shrink:0}
+.modal-section{font-size:10px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px;padding-bottom:5px;border-bottom:1px solid #2a2d3e}
+.modal-section.templates{color:#854d0e;border-bottom-color:#854d0e44}
+.graph-row-actions{display:flex;gap:5px;flex-shrink:0;opacity:0;transition:opacity .12s}
+.graph-row:hover .graph-row-actions{opacity:1}
+.btn-icon{padding:4px 7px;font-size:12px;border-radius:5px;border:none;cursor:pointer;transition:all .12s;background:#2a2d3e;color:#94a3b8}
+.btn-icon:hover{background:#374151;color:#e2e8f0}
+.btn-icon.danger:hover{background:#dc2626;color:#fff}
+.tmpl-badge{font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;background:#854d0e33;color:#ca8a04;letter-spacing:.04em;flex-shrink:0}
+.your-flows-empty{text-align:center;padding:20px 0;font-size:12px;color:#4b5563;border:1px dashed #2a2d3e;border-radius:8px;margin-bottom:6px}
+.version-row{padding:10px;border-bottom:1px solid #2a2d3e;display:flex;align-items:center;justify-content:space-between}
+.version-row:last-child{border-bottom:none}
+.version-info{flex:1;min-width:0;font-size:12px}
+.version-num{font-weight:600;color:#e2e8f0;margin-bottom:2px}
+.version-date{font-size:11px;color:#64748b}
+.version-note{font-size:11px;color:#94a3b8;margin-top:2px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {
+  useState, useEffect, useRef, useCallback
+} = React;
+
+// ReactFlow UMD exposes library as window.ReactFlow; alias component to FlowCanvas
+const {
+  ReactFlow: FlowCanvas, ReactFlowProvider, addEdge, Background, Controls, MiniMap,
+  Handle, Position, useNodesState, useEdgesState, useReactFlow,
+  MarkerType, BackgroundVariant
+} = ReactFlow;
+
+// ── Node definitions ─────────────────────────────────────────────────────────
+const NODE_DEFS = {
+  "trigger.manual":      { label:"Manual Trigger",    icon:"▶",  color:"#059669", group:"trigger",   fields:[] },
+  "trigger.webhook":     { label:"Webhook Trigger",   icon:"🔗", color:"#0284c7", group:"trigger",   fields:[{k:"description",l:"Description",ph:"What this webhook receives…"}] },
+  "trigger.cron":        { label:"Cron Schedule",     icon:"⏰", color:"#7c3aed", group:"trigger",   fields:[{k:"cron",l:"Cron expression",ph:"0 9 * * 1-5"},{k:"timezone",l:"Timezone",ph:"UTC"},{k:"description",l:"Description (optional)",ph:"Weekdays at 9am"}] },
+  "action.http_request": { label:"HTTP Request",      icon:"🌐", color:"#0891b2", group:"action",    fields:[{k:"url",l:"URL",ph:"https://api.example.com/data"},{k:"method",l:"Method",ph:"GET"},{k:"headers_json",l:"Headers (JSON)",ph:'{"Authorization":"Bearer {{token}}"}',mono:true},{k:"body_json",l:"Body (JSON)",ph:'{"key":"{{value}}"}',mono:true,textarea:true}] },
+  "action.transform":    { label:"Transform",         icon:"⚙",  color:"#7c3aed", group:"action",    fields:[{k:"expression",l:"Python expression",ph:"{'out': input['value'] * 2}",mono:true,textarea:true}] },
+  "action.condition":    { label:"Condition",         icon:"◈",  color:"#d97706", group:"action",    fields:[{k:"expression",l:"Condition (Python bool)",ph:"input.get('status') == 'ok'",mono:true}] },
+  "action.filter":       { label:"Filter / Where",    icon:"🔽", color:"#0d9488", group:"action",    fields:[{k:"field",l:"Array field (blank = whole input)",ph:"items"},{k:"expression",l:"Keep condition (use 'item')",ph:"item.get('active') == True",mono:true,textarea:true}] },
+  "action.log":          { label:"Log",               icon:"📋", color:"#475569", group:"action",    fields:[{k:"message",l:"Message",ph:"{{input.value}}"}] },
+  "action.set_variable": { label:"Set Variable",      icon:"📌", color:"#be185d", group:"action",    fields:[{k:"key",l:"Variable name",ph:"my_var"},{k:"value",l:"Value",ph:"{{input.result}}"}] },
+  "action.delay":        { label:"Delay / Wait",      icon:"⏱", color:"#4b5563", group:"action",    fields:[{k:"seconds",l:"Seconds",ph:"5"}] },
+  "action.run_script":   { label:"Run Python Script", icon:"🐍", color:"#84cc16", group:"action",    fields:[{k:"script",l:"Python script (assign result)",ph:"# input contains upstream output\nresult = {'doubled': input.get('value',0) * 2}",mono:true,textarea:true}] },
+  "action.llm_call":     { label:"LLM Call",          icon:"🤖", color:"#8b5cf6", group:"action",    fields:[{k:"model",l:"Model",ph:"gpt-4o-mini"},{k:"prompt",l:"Prompt",ph:"Summarise this: {{upstream.body}}",textarea:true},{k:"system",l:"System prompt (optional)",ph:"You are a helpful assistant.",textarea:true},{k:"api_key",l:"API Key (blank = env)",ph:"sk-…",secret:true},{k:"api_base",l:"API Base (blank = OpenAI)",ph:"https://api.groq.com/openai/v1"}] },
+  "action.send_email":   { label:"Send Email",        icon:"✉",  color:"#0e7490", group:"action",    fields:[{k:"to",l:"To",ph:"user@example.com"},{k:"subject",l:"Subject",ph:"Hello from automations"},{k:"body",l:"Body",ph:"Hi,\n\nYour task completed.",textarea:true},{k:"credential",l:"SMTP Credential (name)",ph:"my-smtp-server"},{k:"smtp_host",l:"SMTP Host (overrides credential)",ph:"smtp.gmail.com"},{k:"smtp_user",l:"SMTP User (overrides credential)",ph:"you@gmail.com"},{k:"smtp_pass",l:"SMTP Pass (overrides credential)",ph:"app-password",secret:true}] },
+  "action.telegram":     { label:"Telegram Message",  icon:"✈",  color:"#0088cc", group:"action",    fields:[{k:"text",l:"Message",ph:"Task done: {{input.result}}",textarea:true},{k:"bot_token",l:"Bot Token (blank = env)",ph:"123456:ABC…",secret:true},{k:"chat_id",l:"Chat ID (blank = env)",ph:"-100123456789"}] },
+  "action.loop":         { label:"Loop / For Each",   icon:"🔄", color:"#7e22ce", group:"action",    fields:[{k:"field",l:"Array field (blank = whole input)",ph:"items"},{k:"max_items",l:"Max iterations",ph:"100"}] },
+  "action.slack":        { label:"Slack Message",     icon:"💬", color:"#4a154b", group:"action",  fields:[{k:"credential",l:"Slack Credential (name)",ph:"my-slack"},{k:"webhook_url",l:"Webhook URL (overrides credential)",ph:"https://hooks.slack.com/services/...",secret:true},{k:"message",l:"Message",ph:"Flow done: {{upstream.result}}",textarea:true},{k:"channel",l:"Channel (optional)",ph:"#notifications"}] },
+  "action.call_graph":   { label:"Call Sub-flow",      icon:"⛓",  color:"#6366f1", group:"action",  fields:[{k:"graph_id",l:"Target Graph ID",ph:"123"},{k:"payload",l:"Payload override (JSON)",ph:'{"key":"{{upstream.value}}"}',textarea:true,mono:true}] },
+  "action.ssh":          { label:"SSH Command",        icon:"💻", color:"#0f766e", group:"action",    fields:[{k:"credential",l:"SSH Credential (name)",ph:"my-ssh-server"},{k:"host",l:"Host (overrides credential)",ph:"192.168.1.1"},{k:"port",l:"Port (overrides credential)",ph:"22"},{k:"username",l:"Username (overrides credential)",ph:"admin"},{k:"password",l:"Password (overrides credential)",ph:"••••••••",secret:true},{k:"command",l:"Command",ph:"ls -la /var/log",mono:true,textarea:true}] },
+  "action.sftp":         { label:"SFTP / FTP",         icon:"📁", color:"#1d4ed8", group:"action",    fields:[{k:"credential",l:"SFTP Credential (name)",ph:"my-sftp-server"},{k:"protocol",l:"Protocol (overrides credential)",ph:"sftp",type:"select",options:["sftp","ftp"]},{k:"host",l:"Host (overrides credential)",ph:"files.example.com"},{k:"port",l:"Port (overrides credential)",ph:"22 (sftp) · 21 (ftp)"},{k:"username",l:"Username (overrides credential)",ph:"admin"},{k:"password",l:"Password (overrides credential)",ph:"••••••••",secret:true},{k:"operation",l:"Operation",ph:"list",type:"select",options:["list","upload","download","delete","mkdir"]},{k:"remote_path",l:"Remote path",ph:"/uploads/report.csv",mono:true},{k:"content",l:"Content (upload only)",ph:"{{upstream.body}}",textarea:true}] },
+  "action.github":       { label:"GitHub",             icon:"🐙", color:"#24292f", group:"integration", fields:[
+    {k:"credential",l:"GitHub Credential (name)",ph:"my-github"},
+    {k:"token",l:"Token (overrides credential)",ph:"ghp_…",secret:true},
+    {k:"action",l:"Action",ph:"list_issues",type:"select",options:["get_repo","list_issues","get_issue","create_issue","close_issue","add_comment","list_commits","list_prs","get_file","create_release"]},
+    {k:"owner",l:"Owner",ph:"my-org or username"},
+    {k:"repo",l:"Repository",ph:"my-repo"},
+    {k:"issue_number",l:"Issue / PR number",ph:"42"},
+    {k:"title",l:"Title (create_issue / create_release)",ph:"Bug: something broken"},
+    {k:"body",l:"Body / Comment",ph:"Details…",textarea:true},
+    {k:"labels",l:"Labels (comma-separated)",ph:"bug,priority"},
+    {k:"path",l:"File path (get_file)",ph:"src/main.py"},
+    {k:"ref",l:"Branch / tag (get_file / list_commits)",ph:"main"},
+    {k:"tag",l:"Tag name (create_release)",ph:"v1.0.0"},
+  ]},
+  "action.google_sheets":{ label:"Google Sheets",      icon:"📊", color:"#0f9d58", group:"integration", fields:[
+    {k:"credential",l:"Google SA Credential (name)",ph:"my-google-sa"},
+    {k:"service_account_json",l:"Service Account JSON (overrides credential)",ph:'{"type":"service_account",…}',secret:true,textarea:true,mono:true},
+    {k:"action",l:"Action",ph:"read_range",type:"select",options:["read_range","write_range","append_rows","clear_range"]},
+    {k:"spreadsheet_id",l:"Spreadsheet ID",ph:"1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"},
+    {k:"range",l:"Range (A1 notation)",ph:"Sheet1!A1:D10"},
+    {k:"rows_json",l:"Rows JSON (write / append)",ph:'[["Name","Age"],["Alice",30]]',textarea:true,mono:true},
+    {k:"header_row",l:"First row is header? (read_range)",ph:"true"},
+  ]},
+  "action.notion":       { label:"Notion",             icon:"🗒", color:"#000000", group:"integration", fields:[
+    {k:"credential",l:"Notion Credential (name)",ph:"my-notion"},
+    {k:"token",l:"Integration Token (overrides credential)",ph:"secret_…",secret:true},
+    {k:"action",l:"Action",ph:"query_database",type:"select",options:["query_database","get_page","create_page","update_page","search","append_blocks"]},
+    {k:"database_id",l:"Database ID (query_database / create_page)",ph:"abc123…"},
+    {k:"page_id",l:"Page ID (get/update/append)",ph:"def456…"},
+    {k:"filter_json",l:"Filter JSON (query_database)",ph:'{"property":"Status","select":{"equals":"Done"}}',textarea:true,mono:true},
+    {k:"properties_json",l:"Properties JSON (create/update)",ph:'{"Name":{"title":[{"text":{"content":"Hello"}}]}}',textarea:true,mono:true},
+    {k:"query",l:"Search query (search)",ph:"Meeting notes"},
+    {k:"content",l:"Content text (append_blocks)",ph:"New paragraph text"},
+  ]},
+  "action.merge":        { label:"Merge / Join",       icon:"⇒",  color:"#0f766e", group:"action", fields:[
+    {k:"mode",l:"Mode",ph:"dict",type:"select",options:["dict","all","first"]},
+  ]},
+  "note":                { label:"Sticky Note",        icon:"📝", color:"#ca8a04", group:"utility",   fields:[{k:"text",l:"Note text",ph:"Document what this part of the flow does…",textarea:true}] },
+};
+
+const GROUPS = [
+  { id:"trigger",     label:"Triggers"     },
+  { id:"action",      label:"Actions"      },
+  { id:"integration", label:"Integrations" },
+  { id:"utility",     label:"Utilities"    },
+];
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+function uid(){ return Math.random().toString(36).slice(2,9) }
+function getToken(){ return new URLSearchParams(window.location.search).get("token") || "" }
+
+async function api(method, path, body){
+  const r = await fetch(path, {
+    method,
+    headers:{"Content-Type":"application/json","x-admin-token":getToken()},
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if(!r.ok){ const e = await r.json().catch(()=>({detail:r.statusText})); throw new Error(e.detail||r.statusText) }
+  return r.json();
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function Toast({ msg, type, onDone }){
+  useEffect(()=>{ const t=setTimeout(onDone,3500); return ()=>clearTimeout(t) },[]);
+  return <div className={`toast ${type}`}>{type==="success"?"✓":"✗"} {msg}</div>;
+}
+
+// ── Custom Node ───────────────────────────────────────────────────────────────
+function StickyNote({ id, data, selected }){
+  const text = (data.config||{}).text || "Double-click to edit in config panel →";
+  return (
+    <div className={`note-node${selected?" selected":""}`}>
+      <div className="note-body">{text}</div>
+      <div className="note-id">#{id}</div>
+    </div>
+  );
+}
+
+function CustomNode({ id, data, selected }){
+  if(data.type === "note") return <StickyNote id={id} data={data} selected={selected}/>;
+
+  const def = NODE_DEFS[data.type] || { label:data.type, icon:"?", color:"#475569" };
+  const isCondition = data.type === "action.condition";
+  const isLoop      = data.type === "action.loop";
+  const isTrigger   = data.type?.startsWith("trigger.");
+  const isDisabled  = !!data.disabled;
+  const runStatus   = data._runStatus; // "ok" | "err" | "skip"
+  const runOutput   = data._runOutput;
+
+  const isCron = data.type === "trigger.cron";
+  const cronExpr = isCron ? ((data.config||{}).cron || "not set") : null;
+  const cronDesc = isCron ? ((data.config||{}).description || null) : null;
+  const summary = isCron ? null : Object.entries(data.config||{})
+    .filter(([k,v])=>v && !["smtp_pass","api_key","bot_token"].includes(k))
+    .map(([k,v])=>`${k}: ${String(v).slice(0,22)}`).join(" · ").slice(0,55);
+
+  return (
+    <div className={`custom-node${selected?" selected":""}${isDisabled?" disabled-node":""}`}
+         style={{borderColor: selected ? def.color : undefined}}>
+      {!isTrigger && <Handle type="target" position={Position.Left} style={{background: def.color}} />}
+      <div className="node-header">
+        <div className="nh-icon" style={{background: def.color+"22", color: def.color}}>{def.icon}</div>
+        <div style={{flex:1,minWidth:0}}>
+          <div className="nh-title">{data.label||def.label}</div>
+          <div className="nh-type">{data.type}</div>
+        </div>
+        {isDisabled && <span className="node-off-chip">OFF</span>}
+      </div>
+      {isCron ? (
+        <div className="node-body" style={{padding:"5px 10px 6px"}}>
+          <div style={{fontFamily:"'JetBrains Mono','Fira Code',monospace",fontSize:11,color:"#a78bfa",letterSpacing:".03em"}}>{cronExpr}</div>
+          {cronDesc && <div style={{fontSize:10,color:"#64748b",marginTop:2}}>{cronDesc}</div>}
+        </div>
+      ) : summary ? (
+        <div className="node-body">{summary}</div>
+      ) : null}
+      <div className="node-footer">
+        <span className="node-id">#{id}</span>
+        {runStatus && <span className={`node-status-dot ${runStatus}`} title={runStatus==="ok"?"Success":runStatus==="err"?"Failed":"Skipped (disabled)"}/>}
+      </div>
+      {isCondition ? (
+        <>
+          <Handle type="source" position={Position.Right} id="true"  style={{top:"35%",background:"#059669"}} />
+          <Handle type="source" position={Position.Right} id="false" style={{top:"65%",background:"#dc2626"}} />
+        </>
+      ) : isLoop ? (
+        <>
+          <Handle type="source" position={Position.Right} id="body" style={{top:"35%",background:def.color}} title="Loop body"/>
+          <Handle type="source" position={Position.Bottom} id="done" style={{background:"#64748b"}} title="After loop"/>
+        </>
+      ) : (
+        <Handle type="source" position={Position.Right} style={{background: def.color}} />
+      )}
+    </div>
+  );
+}
+
+const nodeTypes = { custom: CustomNode };
+
+// ── Config Panel ──────────────────────────────────────────────────────────────
+function ConfigPanel({ node, onChange, onDelete }){
+  if(!node){
+    return (
+      <div className="config-panel">
+        <div className="panel-header"><h3>Node Config</h3></div>
+        <div className="panel-body">
+          <div className="config-empty">
+            <div style={{fontSize:28,marginBottom:10}}>⬅</div>
+            Click any node to configure it.<br/>
+            Drag from the palette to add.<br/><br/>
+            <span style={{fontSize:10,color:"#4b5563"}}>
+              Use <code style={{color:"#a78bfa"}}>{"{{node_id.field}}"}</code><br/>
+              to pass data between nodes.
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const isNote = node.data.type === "note";
+  const isTrigger = node.data.type?.startsWith("trigger.");
+  const def = NODE_DEFS[node.data.type] || { label:node.data.type, icon:"?", color:"#475569", fields:[] };
+  const isDisabled = !!node.data.disabled;
+  const runStatus      = node.data._runStatus;
+  const runOutput      = node.data._runOutput;
+  const runInput       = node.data._runInput;
+  const runDurationMs  = node.data._runDurationMs;
+  const runAttempts    = node.data._runAttempts;
+  const retryMax = node.data.retry_max ?? 0;
+  const retryDelay = node.data.retry_delay ?? 5;
+
+  function update(key, val){
+    onChange(node.id, { ...node.data, config:{ ...node.data.config, [key]:val }});
+  }
+  function updateLabel(val){ onChange(node.id, { ...node.data, label:val }) }
+  function updateRetryMax(val){ onChange(node.id, { ...node.data, retry_max: parseInt(val)||0 }) }
+  function updateRetryDelay(val){ onChange(node.id, { ...node.data, retry_delay: parseInt(val)||5 }) }
+  function updateFailMode(val){ onChange(node.id, { ...node.data, fail_mode: val }) }
+  const failMode = node.data.fail_mode || 'abort';
+  function copyId(){ navigator.clipboard.writeText(node.id).catch(()=>{}) }
+  function toggleDisabled(){
+    onChange(node.id, { ...node.data, disabled: !isDisabled });
+  }
+
+  const statusLabel = runStatus==="ok" ? "Succeeded" : runStatus==="err" ? "Failed" : runStatus==="skip" ? "Skipped" : null;
+  const statusCls   = runStatus==="ok" ? "run-status-ok" : runStatus==="err" ? "run-status-err" : "run-status-skip";
+
+  return (
+    <div className="config-panel">
+      <div className="panel-header">
+        <h3>{def.icon} {def.label}</h3>
+      </div>
+      <div className="panel-body">
+
+        {/* Node ID badge */}
+        <div className="node-id-badge" onClick={copyId} title="Click to copy node ID">
+          <div>
+            <div style={{fontSize:10,color:"#64748b",marginBottom:2}}>NODE ID (for templates)</div>
+            <code>{node.id}</code>
+          </div>
+          <span className="copy-hint">📋 copy</span>
+        </div>
+
+        {/* Disable / Enable toggle (not for sticky notes) */}
+        {!isNote && (
+          <div className="disable-toggle-row">
+            <span className="disable-toggle-label">{isDisabled ? "⏸ Node disabled" : "▶ Node enabled"}</span>
+            <label className="toggle-switch">
+              <input type="checkbox" checked={!isDisabled} onChange={toggleDisabled}/>
+              <div className="toggle-track"/>
+              <div className="toggle-thumb"/>
+            </label>
+          </div>
+        )}
+
+        {/* Label */}
+        {!isNote && (
+          <>
+            <div className="section-divider">Label</div>
+            <div className="field-group">
+              <input className="field-input" placeholder={def.label}
+                value={node.data.label||""} onChange={e=>updateLabel(e.target.value)}/>
+            </div>
+          </>
+        )}
+
+        {/* Fields */}
+        {def.fields.length > 0 && <div className="section-divider">Config</div>}
+        {def.fields.map(f => (
+          <div className="field-group" key={f.k}>
+            <div className="field-label">
+              {f.l}
+              {f.secret && <span className="field-hint">🔒 sensitive</span>}
+            </div>
+            {f.type === "select" ? (
+              <select className="field-input" value={(node.data.config||{})[f.k]||f.options[0]}
+                onChange={e=>update(f.k,e.target.value)}>
+                {f.options.map(o=><option key={o} value={o}>{o}</option>)}
+              </select>
+            ) : f.textarea ? (
+              <textarea className={`field-input${f.mono?" mono":""}`} placeholder={f.ph}
+                value={(node.data.config||{})[f.k]||""} onChange={e=>update(f.k,e.target.value)} rows={4}/>
+            ) : (
+              <input className={`field-input${f.mono?" mono":""}`} placeholder={f.ph}
+                type={f.secret?"password":"text"}
+                value={(node.data.config||{})[f.k]||""} onChange={e=>update(f.k,e.target.value)}/>
+            )}
+            {f.secret && <span className="secret-hint">💡 Or use {"{{creds.your-credential-name}}"}</span>}
+          </div>
+        ))}
+
+        {/* Condition / Loop hints */}
+        {node.data.type === "action.condition" && (
+          <div style={{background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#94a3b8",marginTop:6,lineHeight:1.8}}>
+            Expression must evaluate to a Python bool.<br/>
+            <div style={{color:"#059669",marginTop:4}}>● True handle → nodes that run when condition is met</div>
+            <div style={{color:"#dc2626"}}>● False handle → nodes that run when condition is not met</div>
+            <div style={{marginTop:4}}>Nodes reachable from the un-taken handle are <strong>skipped</strong> automatically.<br/>
+            Nodes after both branches converge always run.</div>
+            <div style={{marginTop:4}}>Output: <code style={{color:"#a78bfa"}}>{"{ result: bool, input: ... }"}</code></div>
+          </div>
+        )}
+        {node.data.type === "action.loop" && (
+          <div style={{background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#94a3b8",marginTop:6}}>
+            <div style={{color:"#7e22ce",marginBottom:3}}>● Body → runs per item</div>
+            <div style={{color:"#64748b",marginBottom:4}}>● Done → after all iterations</div>
+            <div>Each body node receives the current item as input.</div>
+          </div>
+        )}
+        {node.data.type === "action.filter" && (
+          <div style={{background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#94a3b8",marginTop:6}}>
+            Output: <code style={{color:"#a78bfa"}}>{"{ items: [...], count: N }"}</code><br/>
+            Use <code style={{color:"#a78bfa"}}>item</code> in the expression.
+          </div>
+        )}
+        {node.data.type === "action.llm_call" && (
+          <div style={{background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#94a3b8",marginTop:6}}>
+            Output: <code style={{color:"#a78bfa"}}>{"{ response, model, tokens }"}</code><br/>
+            Set <code style={{color:"#a78bfa"}}>api_base</code> for Groq, Together AI, Ollama etc.
+          </div>
+        )}
+        {node.data.type === "action.slack" && (
+          <div style={{background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#94a3b8",marginTop:6,lineHeight:1.9}}>
+            <div style={{color:"#a78bfa",fontWeight:600,marginBottom:4}}>💡 Credential shortcut</div>
+            Create a <strong>Slack Incoming Webhook</strong> credential, then set <strong>Slack Credential</strong> to its name — the webhook URL is filled automatically.<br/>
+            The Webhook URL field overrides the credential if both are set.<br/>
+            <div style={{marginTop:4}}>Output: <code style={{color:"#a78bfa"}}>{"{ sent: true, message }"}</code></div>
+          </div>
+        )}
+        {node.data.type === "action.call_graph" && (
+          <div style={{background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#94a3b8",marginTop:6}}>
+            Runs another flow as a sub-routine.<br/>
+            Output: the sub-flow's final context dict.<br/>
+            Max nesting depth: <code style={{color:"#a78bfa"}}>5</code> levels.
+          </div>
+        )}
+        {node.data.type === "action.run_script" && (
+          <div style={{background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#94a3b8",marginTop:6}}>
+            Variables: <code style={{color:"#a78bfa"}}>input</code>, <code style={{color:"#a78bfa"}}>context</code>, <code style={{color:"#a78bfa"}}>log</code>, <code style={{color:"#a78bfa"}}>json</code>, <code style={{color:"#a78bfa"}}>os</code>, <code style={{color:"#a78bfa"}}>time</code><br/>
+            Assign your output to <code style={{color:"#a78bfa"}}>result</code>.
+          </div>
+        )}
+        {node.data.type === "action.send_email" && (
+          <div style={{background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#94a3b8",marginTop:6,lineHeight:1.9}}>
+            <div style={{color:"#a78bfa",fontWeight:600,marginBottom:4}}>💡 Credential shortcut</div>
+            Create an <strong>SMTP Server</strong> credential, then set <strong>SMTP Credential</strong> to its name — host, port, user and password are filled automatically.<br/>
+            The individual host/user/pass fields override the credential if both are set.
+          </div>
+        )}
+        {node.data.type === "action.ssh" && (
+          <div style={{background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#94a3b8",marginTop:6,lineHeight:1.9}}>
+            <div style={{color:"#a78bfa",fontWeight:600,marginBottom:4}}>💡 Credential shortcut</div>
+            Create an <strong>SSH Server</strong> credential in the Credentials page, then set <strong>SSH Credential</strong> to its name — host, port, username and password are filled automatically.<br/>
+            Individual fields override the credential if both are set.<br/>
+            <div style={{marginTop:6}}>Output: <code style={{color:"#a78bfa"}}>{"{ stdout, stderr, exit_code, success }"}</code></div>
+            <span style={{color:"#64748b"}}>Host keys are auto-accepted (self-hosted use only).</span>
+          </div>
+        )}
+        {node.data.type === "action.sftp" && (
+          <div style={{background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#94a3b8",marginTop:6,lineHeight:1.9}}>
+            <div style={{color:"#a78bfa",fontWeight:600,marginBottom:4}}>💡 Credential shortcut</div>
+            Create an <strong>SFTP / FTP Server</strong> credential and set <strong>SFTP Credential</strong> to its name.<br/>
+            <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:"0 10px",marginTop:6}}>
+              <code style={{color:"#a78bfa"}}>list</code><span>→ {"{ files: [...], count }"}</span>
+              <code style={{color:"#a78bfa"}}>upload</code><span>→ put <em>content</em> at remote_path</span>
+              <code style={{color:"#a78bfa"}}>download</code><span>→ {"{ content, size }"}</span>
+              <code style={{color:"#a78bfa"}}>delete</code><span>→ remove remote file</span>
+              <code style={{color:"#a78bfa"}}>mkdir</code><span>→ create remote directory</span>
+            </div>
+          </div>
+        )}
+        {node.data.type === "action.github" && (
+          <div style={{background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#94a3b8",marginTop:6,lineHeight:1.9}}>
+            <div style={{color:"#a78bfa",fontWeight:600,marginBottom:4}}>🐙 GitHub Integration</div>
+            <div style={{color:"#94a3b8",marginBottom:6}}>Create a <strong>GitHub Token</strong> credential (type: API Key, paste your PAT in the <em>api_key</em> field), then set <strong>GitHub Credential</strong> to its name.</div>
+            <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:"0 10px"}}>
+              <code style={{color:"#a78bfa"}}>get_repo</code><span>→ repo details (stars, forks, description…)</span>
+              <code style={{color:"#a78bfa"}}>list_issues</code><span>→ open issues list</span>
+              <code style={{color:"#a78bfa"}}>get_issue</code><span>→ single issue (needs issue_number)</span>
+              <code style={{color:"#a78bfa"}}>create_issue</code><span>→ new issue (title, body, labels)</span>
+              <code style={{color:"#a78bfa"}}>close_issue</code><span>→ close issue by number</span>
+              <code style={{color:"#a78bfa"}}>add_comment</code><span>→ comment on issue</span>
+              <code style={{color:"#a78bfa"}}>list_commits</code><span>→ recent commits</span>
+              <code style={{color:"#a78bfa"}}>list_prs</code><span>→ open PRs</span>
+              <code style={{color:"#a78bfa"}}>get_file</code><span>→ raw file content (needs path)</span>
+              <code style={{color:"#a78bfa"}}>create_release</code><span>→ new release (tag, title, body)</span>
+            </div>
+          </div>
+        )}
+        {node.data.type === "action.google_sheets" && (
+          <div style={{background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#94a3b8",marginTop:6,lineHeight:1.9}}>
+            <div style={{color:"#a78bfa",fontWeight:600,marginBottom:4}}>📊 Google Sheets Integration</div>
+            <div style={{color:"#94a3b8",marginBottom:6}}>Create a <strong>Google Service Account</strong> credential and paste the full SA JSON into the <em>value</em> field. Then set <strong>Google SA Credential</strong> to its name. Share the spreadsheet with the service account email.</div>
+            <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:"0 10px"}}>
+              <code style={{color:"#a78bfa"}}>read_range</code><span>→ {"{ rows: [...], headers?, count }"}</span>
+              <code style={{color:"#a78bfa"}}>write_range</code><span>→ overwrite cells with rows_json 2D array</span>
+              <code style={{color:"#a78bfa"}}>append_rows</code><span>→ append rows_json below existing data</span>
+              <code style={{color:"#a78bfa"}}>clear_range</code><span>→ clear all values in range</span>
+            </div>
+            <div style={{marginTop:6,color:"#64748b"}}>Range format: <code>Sheet1!A1:D10</code> or just <code>Sheet1</code></div>
+          </div>
+        )}
+        {node.data.type === "action.notion" && (
+          <div style={{background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#94a3b8",marginTop:6,lineHeight:1.9}}>
+            <div style={{color:"#a78bfa",fontWeight:600,marginBottom:4}}>🗒 Notion Integration</div>
+            <div style={{color:"#94a3b8",marginBottom:6}}>Create a <strong>Notion Integration Token</strong> credential (API Key type, paste <em>secret_…</em> token), then set <strong>Notion Credential</strong> to its name. Share the database or page with your integration in Notion.</div>
+            <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:"0 10px"}}>
+              <code style={{color:"#a78bfa"}}>query_database</code><span>→ rows with flattened properties</span>
+              <code style={{color:"#a78bfa"}}>get_page</code><span>→ page with flattened properties</span>
+              <code style={{color:"#a78bfa"}}>create_page</code><span>→ new page in database (properties_json)</span>
+              <code style={{color:"#a78bfa"}}>update_page</code><span>→ update page properties</span>
+              <code style={{color:"#a78bfa"}}>search</code><span>→ workspace-wide search</span>
+              <code style={{color:"#a78bfa"}}>append_blocks</code><span>→ add paragraph to page</span>
+            </div>
+          </div>
+        )}
+        {node.data.type === "trigger.cron" && (
+          <div style={{background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#94a3b8",marginTop:6,lineHeight:1.8}}>
+            <div style={{color:"#a78bfa",fontWeight:600,marginBottom:4}}>⏰ Saved automatically as a schedule</div>
+            <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:"0 10px"}}>
+              <span style={{color:"#64748b"}}>Every minute</span><code>* * * * *</code>
+              <span style={{color:"#64748b"}}>Every hour</span><code>0 * * * *</code>
+              <span style={{color:"#64748b"}}>Daily at 9am</span><code>0 9 * * *</code>
+              <span style={{color:"#64748b"}}>Weekdays 9am</span><code>0 9 * * 1-5</code>
+              <span style={{color:"#64748b"}}>Every 15 min</span><code>*/15 * * * *</code>
+              <span style={{color:"#64748b"}}>1st of month</span><code>0 0 1 * *</code>
+            </div>
+          </div>
+        )}
+
+        {/* Retry Policy (for action nodes only) */}
+        {!isNote && !isTrigger && (
+          <>
+            <div className="section-divider">Retry Policy</div>
+            <div className="form-row" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div className="field-group" style={{marginBottom:0}}>
+                <label style={{fontSize:11,color:"#94a3b8",fontWeight:500,marginBottom:4}}>Max retries</label>
+                <input className="field-input" type="number" min="0" max="5" value={retryMax} onChange={e=>updateRetryMax(e.target.value)}/>
+              </div>
+              <div className="field-group" style={{marginBottom:0}}>
+                <label style={{fontSize:11,color:"#94a3b8",fontWeight:500,marginBottom:4}}>Retry delay (sec)</label>
+                <input className="field-input" type="number" min="1" max="60" value={retryDelay} onChange={e=>updateRetryDelay(e.target.value)}/>
+              </div>
+            </div>
+            {/* Fail mode */}
+            <div className="field-group" style={{marginTop:10}}>
+              <label style={{fontSize:11,color:"#94a3b8",fontWeight:500,marginBottom:4}}>On failure</label>
+              <select className="field-input" value={failMode} onChange={e=>updateFailMode(e.target.value)}>
+                <option value="abort">abort — stop the graph (default)</option>
+                <option value="continue">continue — store error, keep going</option>
+              </select>
+              {failMode==="continue" && (
+                <div style={{fontSize:10,color:"#f59e0b",marginTop:4}}>
+                  ⚠ Downstream nodes receive {"{ __error, __node, __type }"} as input. Use a Condition node to check for errors.
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Merge node hint */}
+        {node.data.type === "action.merge" && (
+          <div style={{background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:6,padding:"8px 10px",fontSize:10,color:"#94a3b8",marginTop:6,lineHeight:1.9}}>
+            <div style={{color:"#a78bfa",fontWeight:600,marginBottom:4}}>⇒ Merge / Join</div>
+            Connect multiple upstream nodes to this node to combine their outputs.
+            <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:"0 10px",marginTop:6}}>
+              <code style={{color:"#4ade80"}}>dict</code><span>→ merge all upstream dicts (last wins on collision)</span>
+              <code style={{color:"#60a5fa"}}>all</code><span>→ {"{ merged: [...], count: N }"}</span>
+              <code style={{color:"#94a3b8"}}>first</code><span>→ pass through the first upstream value</span>
+            </div>
+          </div>
+        )}
+
+        {/* Live Data Inspector panel */}
+        {runStatus && (
+          <div className="run-output-panel">
+            <div className="run-output-title">
+              Run data
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                {runDurationMs !== undefined && (
+                  <span style={{fontSize:10,color:"#64748b"}}>{runDurationMs}ms{runAttempts>1?` · ${runAttempts} attempts`:""}</span>
+                )}
+                <span className={`run-output-status ${statusCls}`}>{statusLabel}</span>
+              </div>
+            </div>
+            {runInput !== undefined && (
+              <>
+                <div style={{fontSize:10,fontWeight:600,color:"#94a3b8",marginBottom:3,marginTop:4}}>▶ Input</div>
+                <div className="run-output-body" style={{borderColor:"#1e3a5f",maxHeight:160}}>
+                  {runInput?.__truncated
+                    ? <span style={{color:"#64748b",fontStyle:"italic"}}>⚠ Input too large to display ({runInput.__size} chars)</span>
+                    : (typeof runInput === "string" ? runInput : JSON.stringify(runInput, null, 2))
+                  }
+                </div>
+              </>
+            )}
+            {runOutput !== undefined && runOutput !== null && (
+              <>
+                <div style={{fontSize:10,fontWeight:600,color: runStatus==="err"?"#f87171":"#4ade80",marginBottom:3,marginTop:6}}>
+                  {runStatus==="err" ? "✗ Error" : runStatus==="skip" ? "↷ Skipped" : "✓ Output"}
+                </div>
+                <div className="run-output-body" style={{borderColor: runStatus==="err"?"#7f1d1d":"#14532d",maxHeight:200}}>
+                  {runOutput?.__truncated
+                    ? <span style={{color:"#64748b",fontStyle:"italic"}}>⚠ Output too large to display</span>
+                    : (typeof runOutput === "string" ? runOutput : JSON.stringify(runOutput, null, 2))
+                  }
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        <button className="delete-node-btn" onClick={()=>onDelete(node.id)}>🗑 Remove node</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Node Context Menu ─────────────────────────────────────────────────────────
+function NodeContextMenu({ menu, onClose, onDuplicate, onDelete, onToggleDisabled, onCopyId, onRename }){
+  const node = menu.node;
+  const isDisabled = !!node.data.disabled;
+  const isNote = node.data.type === "note";
+
+  useEffect(()=>{
+    const close = (e)=>{ if(!e.target.closest('.ctx-menu')) onClose(); };
+    window.addEventListener("mousedown", close, true);
+    return ()=>window.removeEventListener("mousedown", close, true);
+  },[]);
+
+  // Keep menu within viewport
+  const style = { left: Math.min(menu.x, window.innerWidth-190), top: Math.min(menu.y, window.innerHeight-240) };
+
+  return (
+    <div className="ctx-menu" style={style}>
+      <div className="ctx-label">{(NODE_DEFS[node.data.type]||{}).label||node.data.type}</div>
+      <div className="ctx-item" onClick={()=>{onRename(node); onClose()}}>✏ Rename</div>
+      <div className="ctx-item" onClick={()=>{onCopyId(node.id); onClose()}}>📋 Copy ID</div>
+      <div className="ctx-divider"/>
+      <div className="ctx-item" onClick={()=>{onDuplicate(node); onClose()}}>⧉ Duplicate node</div>
+      {!isNote && (
+        <div className="ctx-item" onClick={()=>{onToggleDisabled(node.id); onClose()}}>
+          {isDisabled ? "▶ Enable node" : "⏸ Disable node"}
+        </div>
+      )}
+      <div className="ctx-divider"/>
+      <div className="ctx-item danger" onClick={()=>{onDelete(node.id); onClose()}}>🗑 Delete node</div>
+    </div>
+  );
+}
+
+// ── Palette ───────────────────────────────────────────────────────────────────
+function Palette({ search, onSearch }){
+  function onDragStart(e, type){
+    e.dataTransfer.setData("application/reactflow-type", type);
+    e.dataTransfer.effectAllowed = "move";
+  }
+  const q = search.toLowerCase();
+  const filtered = Object.entries(NODE_DEFS).filter(([type, def])=>
+    !q || def.label.toLowerCase().includes(q) || type.includes(q)
+  );
+
+  return (
+    <div className="sidebar">
+      <div className="sidebar-search">
+        <input placeholder="🔍 Search nodes…" value={search} onChange={e=>onSearch(e.target.value)}/>
+      </div>
+      <div className="sidebar-scroll">
+        {GROUPS.map(g => {
+          const items = filtered.filter(([,d])=>d.group===g.id);
+          if(!items.length) return null;
+          return (
+            <div key={g.id}>
+              <div className="sidebar-title">{g.label}</div>
+              {items.map(([type,def]) => (
+                <div key={type} className="node-palette-item" draggable
+                     onDragStart={e=>onDragStart(e,type)} title={type}>
+                  <div className="node-icon" style={{background:def.color+"22",color:def.color}}>{def.icon}</div>
+                  <div>
+                    <div className="node-label">{def.label}</div>
+                    <div className="node-sublabel">{type}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Open/New modal ────────────────────────────────────────────────────────────
+const TEMPLATE_EMOJIS = /^[📧🤖🔄⚠🔍📊⚡🧪🐍⏰💻📁]/u;
+function isTemplate(name){ return TEMPLATE_EMOJIS.test(name) }
+
+function OpenModal({ graphs, onClose, onSelect, onNew, onDuplicate, onDelete, onRename }){
+  const [name, setName]         = useState("");
+  const [search, setSearch]     = useState("");
+  const [busyId, setBusyId]     = useState(null);
+  const q = search.toLowerCase();
+  const allFiltered = q ? graphs.filter(g=>g.name.toLowerCase().includes(q)||(g.description||"").toLowerCase().includes(q)) : graphs;
+  const templates  = allFiltered.filter(g => isTemplate(g.name));
+  const userFlows  = allFiltered.filter(g => !isTemplate(g.name));
+
+  async function handleDuplicate(e, g){
+    e.stopPropagation();
+    setBusyId(g.id);
+    await onDuplicate(g);
+    setBusyId(null);
+  }
+  async function handleDelete(e, g){
+    e.stopPropagation();
+    const msg = isTemplate(g.name)
+      ? `Delete example "${g.name}"?\nYou can restore it via ↺ Restore examples.\nThis cannot be undone.`
+      : `Delete "${g.name}"?\nThis cannot be undone.`;
+    if(!window.confirm(msg)) return;
+    setBusyId(g.id);
+    await onDelete(g.id, g.name);
+    setBusyId(null);
+  }
+
+  async function handleRename(e, g){
+    e.stopPropagation();
+    await onRename(g);
+  }
+
+  function nodeCount(g){ return ((g.graph_data?.nodes)||[]).filter(n=>n.type!=="note").length }
+
+  function renderRow(g, isTempl){
+    const busy = busyId === g.id;
+    const nc = nodeCount(g);
+    return (
+      <div key={g.id} className="graph-row" onClick={()=>{ if(!busy) onSelect(g) }}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+            <span className="graph-row-name">{g.name}</span>
+            {isTempl && <span className="tmpl-badge">EXAMPLE</span>}
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {g.description && <div className="graph-row-desc">{g.description.slice(0,60)}{g.description.length>60?"…":""}</div>}
+            <span style={{fontSize:10,color:"#4b5563",flexShrink:0}}>{nc} node{nc!==1?"s":""}</span>
+          </div>
+        </div>
+        <span className="graph-row-badge" style={{color:g.enabled?"#4ade80":"#f87171",marginRight:6}}>
+          {g.enabled?"●":"○"}
+        </span>
+        <div className="graph-row-actions">
+          <button className="btn-icon" title="Rename" disabled={busy} onClick={e=>handleRename(e,g)}>✏</button>
+          <button className="btn-icon" title="Duplicate" disabled={busy} onClick={e=>handleDuplicate(e,g)}>📋</button>
+          <button className="btn-icon danger" title="Delete" disabled={busy} onClick={e=>handleDelete(e,g)}>🗑</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e=>{ if(e.target.className==="modal-overlay") onClose() }}>
+      <div className="modal">
+        <h2>📂 Flows</h2>
+
+        {/* ── Create new ── */}
+        <div className="field-group" style={{marginBottom:10}}>
+          <div className="field-label">New flow</div>
+          <div style={{display:"flex",gap:8}}>
+            <input className="field-input" placeholder="Flow name…" value={name} onChange={e=>setName(e.target.value)}
+              onKeyDown={e=>{ if(e.key==="Enter"&&name.trim()) onNew(name.trim()) }} style={{flex:1}}/>
+            <button className="btn btn-primary btn-sm" disabled={!name.trim()} onClick={()=>onNew(name.trim())}>Create</button>
+          </div>
+        </div>
+
+        {/* ── Search ── */}
+        <div className="field-group" style={{marginBottom:6}}>
+          <input className="field-input" placeholder="🔍 Search flows…" value={search} onChange={e=>setSearch(e.target.value)}/>
+        </div>
+
+        {/* ── Your Flows ── */}
+        <div className="modal-section">⚡ Your Flows{userFlows.length > 0 ? ` (${userFlows.length})` : ""}</div>
+        {userFlows.length === 0 && !q
+          ? <div className="your-flows-empty">No flows yet — create one above or duplicate an example below.</div>
+          : userFlows.length === 0 && q
+          ? <div className="your-flows-empty">No matching flows.</div>
+          : userFlows.map(g=>renderRow(g, false))
+        }
+
+        {/* ── Examples ── */}
+        {templates.length > 0 && <>
+          <div className="modal-section templates">📚 Examples{templates.length > 0 ? ` (${templates.length})` : ""}</div>
+          <div style={{fontSize:11,color:"#64748b",marginBottom:8}}>
+            Click to open, ✏ rename, or 📋 duplicate to make your own copy.
+          </div>
+          {templates.map(g=>renderRow(g, true))}
+        </>}
+
+        <div className="modal-btns" style={{marginTop:10}}>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Test Payload Modal ─────────────────────────────────────────────────────────
+function TestPayloadModal({ isOpen, onClose, onRun, testPayload, onPayloadChange }) {
+  if (!isOpen) return null;
+  return (
+    <div className="modal-overlay" onClick={e=>{ if(e.target.className==="modal-overlay") onClose() }}>
+      <div className="modal">
+        <h2>🧪 Test Payload</h2>
+        <div className="field-group">
+          <label style={{fontSize:11,color:"#94a3b8",fontWeight:500,marginBottom:4}}>JSON</label>
+          <textarea className="field-input mono" rows={8} value={testPayload} onChange={e=>onPayloadChange(e.target.value)} placeholder='{"key":"value"}' />
+        </div>
+        <div className="modal-btns">
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-success" onClick={()=>{onRun(testPayload); onClose()}}>Run with payload</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── History Modal ──────────────────────────────────────────────────────────────
+function HistoryModal({ isOpen, onClose, graphId, showToast }) {
+  const [versions, setVersions] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen || !graphId) return;
+    async function load() {
+      setLoading(true);
+      try {
+        const v = await api("GET", `/api/graphs/${graphId}/versions`);
+        setVersions(v);
+      } catch (e) {
+        showToast(e.message, "error");
+      }
+      setLoading(false);
+    }
+    load();
+  }, [isOpen, graphId]);
+
+  async function restore(vid) {
+    if (!window.confirm("Restore this version? Current changes will be lost.")) return;
+    try {
+      await api("POST", `/api/graphs/${graphId}/versions/${vid}/restore`);
+      showToast("Version restored. Reloading…");
+      setTimeout(() => window.location.reload(), 500);
+    } catch (e) {
+      showToast(e.message, "error");
+    }
+  }
+
+  if (!isOpen) return null;
+  return (
+    <div className="modal-overlay" onClick={e=>{ if(e.target.className==="modal-overlay") onClose() }}>
+      <div className="modal">
+        <h2>📜 Version History</h2>
+        {loading ? (
+          <div style={{textAlign:"center",color:"#64748b",padding:"20px"}}>Loading…</div>
+        ) : versions.length === 0 ? (
+          <div style={{textAlign:"center",color:"#64748b",padding:"20px"}}>No versions yet.</div>
+        ) : (
+          <div style={{marginTop:12}}>
+            {versions.map((v,idx)=>(
+              <div key={idx} className="version-row">
+                <div className="version-info">
+                  <div className="version-num">Version {v.version}</div>
+                  <div className="version-date">{new Date(v.saved_at).toLocaleString()}</div>
+                  {v.note && <div className="version-note">{v.note}</div>}
+                </div>
+                <button className="btn btn-ghost btn-sm" onClick={()=>restore(v.version)}>Restore</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="modal-btns">
+          <button className="btn btn-ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Edge Label Modal ───────────────────────────────────────────────────────────
+function EdgeLabelModal({ edge, value, onChange, onConfirm, onClose }) {
+  if (!edge) return null;
+  return (
+    <div className="modal-overlay" onClick={e=>{ if(e.target.className==="modal-overlay") onClose() }}>
+      <div className="modal" style={{minWidth:300}}>
+        <h2>✏ Edge Label</h2>
+        <div className="field-group">
+          <input className="field-input" placeholder="Label (leave blank to remove)"
+            value={value} onChange={e=>onChange(e.target.value)}
+            onKeyDown={e=>{ if(e.key==="Enter") onConfirm(value); if(e.key==="Escape") onClose(); }}
+            autoFocus/>
+        </div>
+        <div className="modal-btns">
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={()=>onConfirm(value)}>Set label</button>
+          {edge.label && <button className="btn btn-danger" onClick={()=>onConfirm("")}>Remove</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Validation Modal ───────────────────────────────────────────────────────────
+function ValidationModal({ issues, onClose, onRunAnyway }) {
+  if (!issues) return null;
+  const errors = issues.filter(i=>i.level==="error");
+  const warnings = issues.filter(i=>i.level==="warning");
+  return (
+    <div className="modal-overlay" onClick={e=>{ if(e.target.className==="modal-overlay") onClose() }}>
+      <div className="modal" style={{minWidth:420}}>
+        <h2>{issues.length===0 ? "✅ Flow looks good" : errors.length?"❌ Validation errors":"⚠ Validation warnings"}</h2>
+        {issues.length===0 ? (
+          <p style={{color:"#94a3b8",fontSize:13,marginBottom:12}}>No issues found. The flow is ready to run.</p>
+        ) : (
+          <div style={{marginBottom:12}}>
+            {issues.map((iss,i)=>(
+              <div key={i} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"6px 0",borderBottom:"1px solid #2a2d3e",fontSize:12}}>
+                <span style={{color:iss.level==="error"?"#f87171":"#fbbf24",flexShrink:0}}>{iss.level==="error"?"✗":"⚠"}</span>
+                <span style={{color:"#cbd5e1"}}>{iss.msg}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="modal-btns">
+          <button className="btn btn-ghost" onClick={onClose}>Close</button>
+          {issues.length===0
+            ? <button className="btn btn-success" onClick={onRunAnyway}>▶ Run now</button>
+            : errors.length===0 && <button className="btn btn-ghost" onClick={onRunAnyway}>Run anyway</button>
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Auto-layout function ──────────────────────────────────────────────────────
+function computeAutoLayout(nodes, edges) {
+  const ids = nodes.map(n => n.id);
+  const indeg = Object.fromEntries(ids.map(id => [id, 0]));
+  const succ  = Object.fromEntries(ids.map(id => [id, []]));
+  edges.forEach(e => {
+    if (succ[e.source] !== undefined && indeg[e.target] !== undefined) {
+      succ[e.source].push(e.target);
+      indeg[e.target]++;
+    }
+  });
+  // BFS depth
+  const depth = Object.fromEntries(ids.map(id => [id, 0]));
+  const visited = new Set();
+  const queue = ids.filter(id => indeg[id] === 0);
+  while (queue.length) {
+    const n = queue.shift();
+    if (visited.has(n)) continue;
+    visited.add(n);
+    (succ[n]||[]).forEach(nb => {
+      depth[nb] = Math.max(depth[nb], depth[n] + 1);
+      indeg[nb]--;
+      if (indeg[nb] === 0) queue.push(nb);
+    });
+  }
+  // Group by column
+  const cols = {};
+  ids.forEach(id => {
+    const d = depth[id] || 0;
+    if (!cols[d]) cols[d] = [];
+    cols[d].push(id);
+  });
+  const COL_W = 265, ROW_H = 130, PAD_X = 60, PAD_Y = 80;
+  const newPos = {};
+  Object.entries(cols).forEach(([col, nodeIds]) => {
+    const c = parseInt(col);
+    nodeIds.forEach((id, row) => {
+      newPos[id] = { x: PAD_X + c * COL_W, y: PAD_Y + row * ROW_H };
+    });
+  });
+  return nodes.map(n => ({ ...n, position: newPos[n.id] || n.position }));
+}
+
+// ── Flow validation function ──────────────────────────────────────────────────
+const REQUIRED_FIELDS = {
+  "trigger.cron":        ["cron"],
+  "action.http_request": ["url"],
+  "action.send_email":   ["to","subject"],
+  "action.ssh":          ["host","command"],
+  "action.sftp":         ["host","remote_path"],
+  "action.call_graph":   ["graph_id"],
+  "action.slack":        ["webhook_url","message"],
+  "action.llm_call":     ["prompt"],
+  "action.run_script":   ["script"],
+  "action.transform":    ["expression"],
+  "action.condition":    ["expression"],
+  "action.github":       ["owner","repo","action"],
+  "action.google_sheets":["spreadsheet_id","range","action"],
+  "action.notion":       ["action"],
+};
+
+function validateFlow(nodes, edges, credentials) {
+  const issues = [];
+  const triggers = nodes.filter(n => n.data.type?.startsWith("trigger.") && !n.data.disabled);
+  if (triggers.length === 0)
+    issues.push({level:"error", msg:"No trigger node — the flow can't start"});
+
+  const connectedIds = new Set([...edges.map(e=>e.source), ...edges.map(e=>e.target)]);
+  const credNames = new Set((credentials||[]).map(c=>c.name));
+
+  nodes.forEach(node => {
+    if (node.data.type==="note" || node.data.disabled) return;
+    const label = node.data.label || node.data.type || node.id;
+    const isTrigger = node.data.type?.startsWith("trigger.");
+    const cfg = node.data.config || {};
+
+    // Disconnected non-trigger nodes
+    if (!isTrigger && !connectedIds.has(node.id))
+      issues.push({level:"warning", msg:`"${label}" is not connected to anything`});
+
+    // Required fields
+    (REQUIRED_FIELDS[node.data.type]||[]).forEach(f => {
+      if (!cfg[f] || !String(cfg[f]).trim())
+        issues.push({level:"warning", msg:`"${label}" — required field "${f}" is empty`});
+    });
+
+    // Missing creds
+    const configStr = JSON.stringify(cfg);
+    [...configStr.matchAll(/\{\{creds\.([^}]+)\}\}/g)].forEach(m => {
+      const name = m[1].trim();
+      if (!credNames.has(name))
+        issues.push({level:"warning", msg:`"${label}" references missing credential "{{creds.${name}}}"`});
+    });
+  });
+  return issues;
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────────
+function App(){
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [selectedNode, setSelectedNode]  = useState(null);
+  const [selectedEdge, setSelectedEdge]  = useState(null);
+  const [edgeLabelInput, setEdgeLabelInput] = useState("");
+  const [currentGraph, setCurrentGraph]  = useState(null);
+  const [graphName, setGraphName]        = useState("Untitled Graph");
+  const [graphs, setGraphs]              = useState([]);
+  const [showModal, setShowModal]        = useState(false);
+  const [showTestModal, setShowTestModal] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [contextMenu, setContextMenu]    = useState(null); // {x,y,node}
+  const [toast, setToast]                = useState(null);
+  const [saving, setSaving]              = useState(false);
+  const [running, setRunning]            = useState(false);
+  const [runError, setRunError]          = useState(null);  // {msg, nodeName}
+  const [showMap, setShowMap]            = useState(true);
+  const [paletteSearch, setPaletteSearch]= useState("");
+  const [testPayload, setTestPayload]    = useState("{}");
+  const [validationIssues, setValidationIssues] = useState(null); // null=not shown, []=clear
+  const [inspectorRuns, setInspectorRuns] = useState([]);  // recent runs for current graph
+  const [inspectorRunId, setInspectorRunId] = useState(null); // selected run for inspection
+
+  // undo/redo
+  const histRef = useRef([]);
+  const histIdx = useRef(-1);
+  const restoring = useRef(false);
+  const [histState, setHistState] = useState({idx:-1, len:0});
+  function syncHistState(){ setHistState({idx:histIdx.current, len:histRef.current.length}) }
+
+  const reactFlowWrapper = useRef(null);
+  const { screenToFlowPosition } = useReactFlow();
+
+  const showToast = useCallback((msg, type="success")=>{
+    setToast({msg,type,key:Date.now()});
+  },[]);
+
+  useEffect(()=>{ loadGraphList() },[]);
+
+  // keyboard shortcuts
+  useEffect(()=>{
+    function onKey(e){
+      const mac = e.metaKey;
+      const ctrl = e.ctrlKey;
+      if((ctrl||mac) && e.key==="z" && !e.shiftKey){ e.preventDefault(); doUndo() }
+      if((ctrl&&e.key==="y")||(mac&&e.shiftKey&&e.key==="z")){ e.preventDefault(); doRedo() }
+      if((ctrl||mac) && e.key==="s"){ e.preventDefault(); saveGraph() }
+    }
+    window.addEventListener("keydown", onKey);
+    return ()=>window.removeEventListener("keydown", onKey);
+  },[]);
+
+  function saveSnap(ns, es){
+    if(restoring.current) return;
+    histRef.current = histRef.current.slice(0, histIdx.current + 1);
+    histRef.current.push({
+      nodes: JSON.parse(JSON.stringify(ns)),
+      edges: JSON.parse(JSON.stringify(es))
+    });
+    if(histRef.current.length > 60) histRef.current.shift();
+    histIdx.current = histRef.current.length - 1;
+    syncHistState();
+  }
+
+  function doUndo(){
+    if(histIdx.current <= 0) return;
+    histIdx.current--;
+    const snap = histRef.current[histIdx.current];
+    restoring.current = true;
+    setNodes(snap.nodes.map(n=>({...n})));
+    setEdges(snap.edges.map(e=>({...e,type:"smoothstep",animated:true,style:{stroke:"#7c3aed",strokeWidth:2},markerEnd:{type:MarkerType.ArrowClosed,color:"#7c3aed"}})));
+    setSelectedNode(null);
+    syncHistState();
+    setTimeout(()=>{ restoring.current = false }, 50);
+  }
+
+  function doRedo(){
+    if(histIdx.current >= histRef.current.length - 1) return;
+    histIdx.current++;
+    const snap = histRef.current[histIdx.current];
+    restoring.current = true;
+    setNodes(snap.nodes.map(n=>({...n})));
+    setEdges(snap.edges.map(e=>({...e,type:"smoothstep",animated:true,style:{stroke:"#7c3aed",strokeWidth:2},markerEnd:{type:MarkerType.ArrowClosed,color:"#7c3aed"}})));
+    setSelectedNode(null);
+    syncHistState();
+    setTimeout(()=>{ restoring.current = false }, 50);
+  }
+
+  async function loadGraphList(){
+    try { setGraphs(await api("GET","/api/graphs")) } catch(e){}
+  }
+
+  // Auto-open a graph from sessionStorage (admin page link) or URL hash (refresh)
+  useEffect(()=>{
+    const ssId      = sessionStorage.getItem("canvas_open_graph");
+    const slugMatch = window.location.hash.match(/^#flow-([a-f0-9]{8})$/);
+    const idMatch   = window.location.hash.match(/^#graph-(\d+)$/); // legacy fallback
+    const endpoint  = ssId
+      ? `/api/graphs/${ssId}`
+      : slugMatch
+        ? `/api/graphs/by-slug/${slugMatch[1]}`
+        : idMatch
+          ? `/api/graphs/${idMatch[1]}`
+          : null;
+    if(!endpoint) return;
+    sessionStorage.removeItem("canvas_open_graph");
+    api("GET", endpoint)
+      .then(full => {
+        const gd = full.graph_data || { nodes:[], edges:[] };
+        const newNodes = (gd.nodes||[]).map(n=>({
+          id:n.id, type:"custom", position:n.position||{x:100,y:100},
+          data:{ type:n.type, label:n.data?.label||"", config:n.data?.config||{},
+                 disabled:!!n.data?.disabled, retry_max:n.data?.retry_max||0, retry_delay:n.data?.retry_delay||5 }
+        }));
+        const newEdges = (gd.edges||[]).map(e=>({
+          ...e, type:"smoothstep", animated:true,
+          style:{stroke:"#7c3aed",strokeWidth:2},
+          markerEnd:{type:MarkerType.ArrowClosed,color:"#7c3aed"}
+        }));
+        setNodes(newNodes); setEdges(newEdges);
+        setCurrentGraph(full); setGraphName(full.name);
+        setSelectedNode(null); setRunError(null);
+        histRef.current=[]; histIdx.current=-1; syncHistState();
+        saveSnap(newNodes, newEdges);
+        window.location.hash = "flow-" + full.slug;
+        showToast(`Opened: ${full.name}`);
+      })
+      .catch(()=>{ window.location.hash = ""; });
+  },[]);
+
+  const onConnect = useCallback((params)=>{
+    setEdges(eds => {
+      const newEdges = addEdge({
+        ...params, type:"smoothstep", animated:true,
+        style:{stroke:"#7c3aed",strokeWidth:2},
+        markerEnd:{type:MarkerType.ArrowClosed,color:"#7c3aed"},
+        label: undefined
+      }, eds);
+      saveSnap(nodes, newEdges);
+      return newEdges;
+    });
+  },[nodes]);
+
+  function onNodeClick(e, node){ setSelectedNode(node); setContextMenu(null) }
+  function onPaneClick(){ setSelectedNode(null); setContextMenu(null); setSelectedEdge(null) }
+
+  function onEdgeClick(e, edge){
+    setSelectedEdge(edge);
+    setEdgeLabelInput(edge.label || "");
+    setSelectedNode(null);
+    setContextMenu(null);
+  }
+
+  function updateEdgeLabel(label){
+    setEdges(es => {
+      const updated = es.map(e => e.id===selectedEdge.id ? {...e, label: label||undefined} : e);
+      saveSnap(nodes, updated);
+      return updated;
+    });
+    setSelectedEdge(null);
+  }
+
+  function onNodeContextMenu(e, node){
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, node });
+    setSelectedNode(node);
+  }
+
+  function ctxDuplicateNode(node){
+    const newId = uid();
+    const newNode = {
+      ...node,
+      id: newId,
+      position: { x: node.position.x + 40, y: node.position.y + 40 },
+      data: { ...node.data, label: (node.data.label||"") + " (copy)", _runStatus:undefined, _runOutput:undefined },
+      selected: false
+    };
+    setNodes(ns => { const u=[...ns, newNode]; saveSnap(u,edges); return u });
+    setSelectedNode(newNode);
+  }
+
+  function ctxToggleDisabled(id){
+    setNodes(ns => {
+      const u = ns.map(n => n.id===id ? {...n, data:{...n.data, disabled:!n.data.disabled}} : n);
+      saveSnap(u, edges);
+      return u;
+    });
+    setSelectedNode(s => s && s.id===id ? {...s, data:{...s.data, disabled:!s.data.disabled}} : s);
+  }
+
+  function ctxCopyId(id){
+    navigator.clipboard.writeText(id).catch(()=>{});
+    showToast(`Copied: ${id}`);
+  }
+
+  function ctxRenameNode(node){
+    const newLabel = window.prompt("Rename node:", node.data.label || (NODE_DEFS[node.data.type]||{}).label || "");
+    if(newLabel === null || newLabel.trim() === "") return;
+    onNodeChange(node.id, { ...node.data, label: newLabel.trim() });
+  }
+
+  function onNodeChange(id, newData){
+    setNodes(ns => {
+      const updated = ns.map(n => n.id===id ? {...n, data:newData} : n);
+      saveSnap(updated, edges);
+      return updated;
+    });
+    setSelectedNode(s => s && s.id===id ? {...s, data:newData} : s);
+  }
+
+  function onDeleteNode(id){
+    setNodes(ns => { const u=ns.filter(n=>n.id!==id); saveSnap(u,edges); return u });
+    setEdges(es => es.filter(e=>e.source!==id && e.target!==id));
+    setSelectedNode(null);
+  }
+
+  function onDragOver(e){ e.preventDefault(); e.dataTransfer.dropEffect="move" }
+
+  function onDrop(e){
+    e.preventDefault();
+    const type = e.dataTransfer.getData("application/reactflow-type");
+    if(!type) return;
+    const def = NODE_DEFS[type];
+    const pos = screenToFlowPosition({ x:e.clientX, y:e.clientY });
+    const id = uid();
+    setNodes(ns => {
+      const updated = [...ns, { id, type:"custom", position:pos, data:{ type, label:def.label, config:{}, retry_max:0, retry_delay:5 } }];
+      saveSnap(updated, edges);
+      return updated;
+    });
+  }
+
+  function buildGraphData(){
+    return {
+      nodes: nodes.map(n=>({
+        id:n.id, type:n.data.type, position:n.position,
+        data:{
+          label:n.data.label||"",
+          config:n.data.config||{},
+          disabled:!!n.data.disabled,
+          retry_max:n.data.retry_max||0,
+          retry_delay:n.data.retry_delay||5,
+          fail_mode:n.data.fail_mode||"abort"
+        }
+      })),
+      edges: edges.map(e=>({ id:e.id, source:e.source, target:e.target, sourceHandle:e.sourceHandle||null, targetHandle:e.targetHandle||null, label:e.label }))
+    };
+  }
+
+  function doAutoLayout(){
+    setNodes(ns => {
+      const laid = computeAutoLayout(ns, edges);
+      saveSnap(laid, edges);
+      return laid;
+    });
+    showToast("Layout applied");
+  }
+
+  async function saveGraph(){
+    setSaving(true);
+    try {
+      const gd = buildGraphData();
+      if(currentGraph){
+        await api("PUT",`/api/graphs/${currentGraph.id}`,{ name:graphName, graph_data:gd });
+        showToast("Graph saved!");
+        await loadGraphList();
+      } else {
+        const g = await api("POST","/api/graphs",{ name:graphName, description:"", graph_data:gd });
+        setCurrentGraph(g);
+        showToast("Graph created!");
+        await loadGraphList();
+      }
+    } catch(e){ showToast(e.message,"error") }
+    setSaving(false);
+  }
+
+  function exportFlow(){
+    if (!currentGraph) return;
+    const data = {
+      version: 8,
+      name: graphName,
+      description: currentGraph.description || "",
+      graph_data: buildGraphData(),
+      exported_at: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `${graphName.replace(/[^a-z0-9]/gi,"_").toLowerCase()}.flow.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("Exported flow JSON");
+  }
+
+  async function importFlow(e){
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = "";
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const name   = (data.name || file.name.replace(/\.flow\.json$/i,"").replace(/_/g," ")) + " (imported)";
+      const gd     = data.graph_data || data; // support raw graph_data too
+      const created = await api("POST","/api/graphs",{name, description: data.description||"", graph_data: gd});
+      showToast(`Imported as "${created.name}"`);
+      await loadGraphList();
+      onSelectGraph(created);
+    } catch(err){ showToast("Import failed: " + err.message, "error") }
+  }
+
+  async function validateAndRun(payload){
+    // load credentials list for reference checking
+    let creds = [];
+    try { creds = await api("GET","/api/credentials"); } catch(e){}
+    const issues = validateFlow(nodes, edges, creds);
+    if (issues.length === 0) {
+      runGraph(payload);
+    } else {
+      setValidationIssues({issues, payload});
+    }
+  }
+
+  async function runGraph(payload){
+    if(!currentGraph){ showToast("Save the graph first","error"); return }
+    setRunning(true);
+    setRunError(null);
+    // Clear previous run annotations
+    setNodes(ns => ns.map(n=>({...n, data:{ ...n.data, _runStatus:undefined, _runOutput:undefined, _runInput:undefined }})));
+    setSelectedNode(s => s ? {...s, data:{...s.data, _runStatus:undefined, _runOutput:undefined}} : s);
+
+    let taskId;
+    try {
+      let runPayload = {};
+      if (payload) {
+        try { runPayload = JSON.parse(payload); } catch(e) { showToast("Invalid JSON in test payload","error"); setRunning(false); return }
+      }
+      const r = await api("POST",`/api/graphs/${currentGraph.id}/run`,{source:"canvas", payload: runPayload});
+      taskId = r.task_id;
+    } catch(e){
+      showToast(e.message,"error");
+      setRunning(false);
+      return;
+    }
+
+    // Poll for completion
+    const poll = setInterval(async()=>{
+      try {
+        const runs = await api("GET","/api/runs");
+        const run = runs.find(x=>x.task_id===taskId);
+        if(!run || run.status==="running" || run.status==="queued") return;
+        clearInterval(poll);
+        setRunning(false);
+        refreshInspectorRuns();
+
+        const ctx = (run.result?.context) || {};
+        const err = run.result?.error || run.error || "";
+
+        if(run.status==="succeeded"){
+          showToast("Run succeeded ✓");
+        } else {
+          // parse error to find failed node
+          let failedNodeId = null;
+          const m = err.match(/\[([a-zA-Z0-9_]+)\]/);
+          if(m) failedNodeId = m[1];
+
+          let failedNodeName = failedNodeId;
+          setNodes(ns=>{
+            const n = ns.find(x=>x.id===failedNodeId);
+            if(n) failedNodeName = n.data?.label || failedNodeId;
+            return ns;
+          });
+
+          setRunError({ msg: err, nodeName: failedNodeName });
+        }
+
+        // Annotate nodes with run results
+        setNodes(ns => ns.map(n=>{
+          if(n.data.type==="note") return n;
+          const nodeResult = ctx[n.id];
+          if(nodeResult === undefined) return n;
+          let status = "ok";
+          if(nodeResult?.__disabled) status = "skip";
+          else if(nodeResult?.__error) status = "err";
+          return { ...n, data:{ ...n.data, _runStatus:status, _runOutput:nodeResult }};
+        }));
+
+        // Update selected node if open
+        setSelectedNode(s => {
+          if(!s) return s;
+          const nr = ctx[s.id];
+          if(nr===undefined) return s;
+          const st = nr?.__disabled?"skip":nr?.__error?"err":"ok";
+          return { ...s, data:{ ...s.data, _runStatus:st, _runOutput:nr }};
+        });
+      } catch(e){ /* keep polling */ }
+    }, 1500);
+
+    // Safety timeout after 5 min
+    setTimeout(()=>{ clearInterval(poll); setRunning(false) }, 300000);
+  }
+
+  // ── Live Data Inspector ────────────────────────────────────────────────────
+  async function refreshInspectorRuns() {
+    if (!currentGraph) { setInspectorRuns([]); return; }
+    try {
+      const allRuns = await api("GET", "/api/runs");
+      const graphRuns = allRuns
+        .filter(r => r.workflow === currentGraph.name || String(r.graph_id) === String(currentGraph.id))
+        .slice(0, 20);
+      setInspectorRuns(graphRuns);
+    } catch(e) { /* silent */ }
+  }
+
+  async function loadInspectorRun(runId) {
+    setInspectorRunId(runId);
+    if (!runId) {
+      // Clear annotations
+      setNodes(ns => ns.map(n => ({...n, data:{...n.data, _runStatus:undefined, _runOutput:undefined, _runInput:undefined}})));
+      setSelectedNode(s => s ? {...s, data:{...s.data, _runStatus:undefined, _runOutput:undefined, _runInput:undefined}} : s);
+      return;
+    }
+    try {
+      const allRuns = await api("GET", "/api/runs");
+      const run = allRuns.find(r => String(r.id) === String(runId) || r.task_id === runId);
+      if (!run) { showToast("Run not found","error"); return; }
+      const traces = run.traces || [];
+      // Build a map: node_id → trace
+      const traceMap = {};
+      traces.forEach(t => { if (t.node_id) traceMap[t.node_id] = t; });
+      const ctx = run.result?.context || {};
+      setNodes(ns => ns.map(n => {
+        if (n.data.type === "note") return n;
+        const t = traceMap[n.id];
+        if (!t) return n;
+        let status = t.status === "ok" ? "ok" : t.status === "error" ? "err" : "skip";
+        return { ...n, data: { ...n.data, _runStatus: status, _runOutput: t.output, _runInput: t.input, _runDurationMs: t.duration_ms, _runAttempts: t.attempts } };
+      }));
+      setSelectedNode(s => {
+        if (!s) return s;
+        const t = traceMap[s.id];
+        if (!t) return s;
+        let st = t.status === "ok" ? "ok" : t.status === "error" ? "err" : "skip";
+        return { ...s, data: { ...s.data, _runStatus: st, _runOutput: t.output, _runInput: t.input, _runDurationMs: t.duration_ms, _runAttempts: t.attempts } };
+      });
+      showToast(`Loaded run #${run.id || runId.slice(0,8)}`);
+    } catch(e) { showToast("Failed to load run: " + e.message, "error"); }
+  }
+
+  async function onSelectGraph(g){
+    try {
+      const full = await api("GET",`/api/graphs/${g.id}`);
+      const gd = full.graph_data || { nodes:[], edges:[] };
+      const newNodes = (gd.nodes||[]).map(n=>({
+        id:n.id, type:"custom", position:n.position||{x:100,y:100},
+        data:{ type:n.type, label:n.data?.label||"", config:n.data?.config||{}, disabled:!!n.data?.disabled, retry_max:n.data?.retry_max||0, retry_delay:n.data?.retry_delay||5, fail_mode:n.data?.fail_mode||"abort" }
+      }));
+      const newEdges = (gd.edges||[]).map(e=>({
+        ...e, type:"smoothstep", animated:true,
+        style:{stroke:"#7c3aed",strokeWidth:2},
+        markerEnd:{type:MarkerType.ArrowClosed,color:"#7c3aed"}
+      }));
+      setNodes(newNodes);
+      setEdges(newEdges);
+      setCurrentGraph(full);
+      setGraphName(full.name);
+      setSelectedNode(null);
+      setShowModal(false);
+      setRunError(null);
+      setInspectorRunId(null);
+      setInspectorRuns([]);
+      // Reset undo history on graph load
+      histRef.current = [];
+      histIdx.current = -1;
+      syncHistState();
+      saveSnap(newNodes, newEdges);
+      window.location.hash = "flow-" + full.slug;
+      showToast(`Loaded: ${full.name}`);
+    } catch(err){ showToast(err.message,"error") }
+  }
+
+  async function onNewGraph(name){
+    setNodes([]); setEdges([]); setCurrentGraph(null);
+    setGraphName(name); setSelectedNode(null); setShowModal(false); setRunError(null);
+    histRef.current = []; histIdx.current = -1;
+    window.location.hash = "";
+  }
+
+  async function duplicateGraph(g){
+    try {
+      const full = await api("GET",`/api/graphs/${g.id}`);
+      const copy = await api("POST","/api/graphs",{
+        name: full.name.replace(TEMPLATE_EMOJIS,"").trim() + " (copy)",
+        description: full.description || "",
+        graph_data: full.graph_data || {}
+      });
+      showToast(`Duplicated as "${copy.name}"`);
+      await loadGraphList();
+    } catch(e){ showToast(e.message,"error") }
+  }
+
+  async function renameGraph(g){
+    const newName = window.prompt("Rename flow:", g.name);
+    if(!newName || newName.trim() === g.name) return;
+    try {
+      await api("PUT",`/api/graphs/${g.id}`,{name:newName.trim()});
+      showToast(`Renamed to "${newName.trim()}"`);
+      // Update currently open graph name if it's the renamed one
+      if(currentGraph && currentGraph.id === g.id) setGraphName(newName.trim());
+      await loadGraphList();
+    } catch(e){ showToast(e.message,"error") }
+  }
+
+  async function deleteGraph(id, name){
+    try {
+      await api("DELETE",`/api/graphs/${id}`);
+      showToast(`Deleted "${name}"`);
+      // If we just deleted the currently open graph, reset
+      if(currentGraph && currentGraph.id === id){
+        setNodes([]); setEdges([]); setCurrentGraph(null);
+        setGraphName("Untitled Graph"); setSelectedNode(null); setRunError(null);
+        histRef.current = []; histIdx.current = -1;
+        window.location.hash = "";
+      }
+      await loadGraphList();
+    } catch(e){ showToast(e.message,"error") }
+  }
+
+  const token = getToken();
+
+  return (
+    <>
+      {/* Top bar */}
+      <div className="topbar">
+        <span className="logo">⚡ HiveRunr</span>
+        <div className="tb-divider"/>
+        <button className="btn btn-ghost btn-sm" onClick={()=>setShowModal(true)}>📂 Open / New</button>
+        <button className="btn btn-ghost btn-sm" onClick={exportFlow} disabled={!currentGraph}>⬇ Export</button>
+        <label className="btn btn-ghost btn-sm" style={{cursor:"pointer"}} title="Import flow from JSON file">
+          ⬆ Import
+          <input type="file" accept=".json" style={{display:"none"}} onChange={importFlow}/>
+        </label>
+        <input className="name-input" value={graphName}
+          onChange={e=>setGraphName(e.target.value)} placeholder="Graph name…"/>
+        {currentGraph && (
+          <span style={{fontSize:10,color:"#64748b",whiteSpace:"nowrap"}}>
+            #{currentGraph.id} · {currentGraph.enabled?"✓ on":"○ off"}
+          </span>
+        )}
+        <div className="topbar-spacer"/>
+        {/* Undo / Redo */}
+        <button className="btn btn-ghost btn-sm" onClick={doUndo}
+          disabled={histState.idx<=0} title="Undo (Ctrl+Z)">↩</button>
+        <button className="btn btn-ghost btn-sm" onClick={doRedo}
+          disabled={histState.idx>=histState.len-1} title="Redo (Ctrl+Y)">↪</button>
+        <div className="tb-divider"/>
+        {/* Minimap toggle */}
+        <button className="btn btn-ghost btn-sm" onClick={()=>setShowMap(m=>!m)}
+          title="Toggle minimap" style={{opacity:showMap?1:0.45}}>🗺</button>
+        <button className="btn btn-ghost btn-sm" onClick={doAutoLayout} title="Auto-layout nodes">⊞ Layout</button>
+        <div className="tb-divider"/>
+        <button className="btn btn-ghost btn-sm" onClick={()=>validateAndRun()} disabled={!currentGraph}>✔ Validate</button>
+        <button className="btn btn-ghost btn-sm" onClick={()=>setShowTestModal(true)} disabled={!currentGraph}>🧪 Test</button>
+        <button className="btn btn-ghost btn-sm" onClick={()=>setShowHistoryModal(true)} disabled={!currentGraph}>📜 History</button>
+        <div className="tb-divider"/>
+        {/* Live Data Inspector */}
+        <select
+          className="btn btn-ghost btn-sm"
+          style={{cursor:"pointer",maxWidth:170,padding:"2px 6px"}}
+          title="Load a past run to inspect node inputs/outputs"
+          value={inspectorRunId||""}
+          onClick={refreshInspectorRuns}
+          onChange={e=>loadInspectorRun(e.target.value||null)}
+          disabled={!currentGraph}
+        >
+          <option value="">🔬 Inspect run…</option>
+          {inspectorRuns.map(r=>(
+            <option key={r.task_id||r.id} value={r.task_id||r.id}>
+              #{r.id} {r.status==="succeeded"?"✓":r.status==="failed"?"✗":"⟳"} {r.created_at?new Date(r.created_at).toLocaleTimeString():""}
+            </option>
+          ))}
+        </select>
+        {inspectorRunId && (
+          <button className="btn btn-ghost btn-sm" style={{color:"#f87171"}} onClick={()=>loadInspectorRun(null)} title="Clear inspection overlay">✕ Clear</button>
+        )}
+        <div className="tb-divider"/>
+        <a href={`/admin?token=${token}`} className="btn btn-ghost btn-sm">← Admin</a>
+        <button className="btn btn-ghost btn-sm" onClick={saveGraph} disabled={saving} title="Save (Ctrl+S)">
+          {saving ? <><span style={{animation:"spin .8s linear infinite",display:"inline-block"}}>⟳</span> Saving…</> : "💾 Save"}
+        </button>
+        <button className="btn btn-success btn-sm" onClick={()=>runGraph()} disabled={running||!currentGraph}>
+          {running ? <><span style={{animation:"spin .8s linear infinite",display:"inline-block"}}>⟳</span> Running…</> : "▶ Run"}
+        </button>
+      </div>
+
+      {/* Error banner */}
+      {runError && (
+        <div className="error-banner">
+          <span className="eb-icon">✗</span>
+          <div className="eb-body">
+            <div className="eb-title">Run failed{runError.nodeName ? ` — node "${runError.nodeName}"` : ""}</div>
+            <div className="eb-msg">{runError.msg}</div>
+          </div>
+          <button className="eb-close" onClick={()=>setRunError(null)}>✕</button>
+        </div>
+      )}
+
+      {/* Main layout */}
+      <div className="canvas-layout">
+        <Palette search={paletteSearch} onSearch={setPaletteSearch}/>
+        <div className="flow-wrap" ref={reactFlowWrapper}>
+          <FlowCanvas
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onNodeClick={onNodeClick}
+            onPaneClick={onPaneClick}
+            onNodeContextMenu={onNodeContextMenu}
+            onEdgeClick={onEdgeClick}
+            onMoveStart={()=>setContextMenu(null)}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
+            nodeTypes={nodeTypes}
+            fitView
+            deleteKeyCode="Delete"
+            style={{background:"#0f1117"}}
+          >
+            <Background variant={BackgroundVariant.Dots} color="#2a2d3e" gap={20} size={1}/>
+            <Controls/>
+            {showMap && (
+              <MiniMap
+                nodeColor={n=>{ const def=NODE_DEFS[n.data?.type]; return def?def.color:"#475569" }}
+                maskColor="#0f111788"
+              />
+            )}
+          </FlowCanvas>
+        </div>
+        <ConfigPanel node={selectedNode} onChange={onNodeChange} onDelete={onDeleteNode}/>
+      </div>
+
+      {showModal && (
+        <OpenModal
+          graphs={graphs}
+          onClose={()=>setShowModal(false)}
+          onSelect={onSelectGraph}
+          onNew={onNewGraph}
+          onDuplicate={duplicateGraph}
+          onDelete={deleteGraph}
+          onRename={renameGraph}
+        />
+      )}
+
+      <TestPayloadModal isOpen={showTestModal} onClose={()=>setShowTestModal(false)} onRun={runGraph} testPayload={testPayload} onPayloadChange={setTestPayload} />
+
+      <HistoryModal isOpen={showHistoryModal} onClose={()=>setShowHistoryModal(false)} graphId={currentGraph?.id} showToast={showToast} />
+
+      {selectedEdge && (
+        <EdgeLabelModal edge={selectedEdge} value={edgeLabelInput} onChange={setEdgeLabelInput}
+          onConfirm={updateEdgeLabel} onClose={()=>setSelectedEdge(null)}/>
+      )}
+
+      {validationIssues && (
+        <ValidationModal
+          issues={validationIssues.issues}
+          onClose={()=>setValidationIssues(null)}
+          onRunAnyway={()=>{ runGraph(validationIssues.payload); setValidationIssues(null); }}
+        />
+      )}
+
+      {contextMenu && (
+        <NodeContextMenu
+          menu={contextMenu}
+          onClose={()=>setContextMenu(null)}
+          onDuplicate={ctxDuplicateNode}
+          onDelete={id=>{ onDeleteNode(id); setContextMenu(null); }}
+          onToggleDisabled={ctxToggleDisabled}
+          onCopyId={ctxCopyId}
+          onRename={ctxRenameNode}
+        />
+      )}
+      {toast && <Toast key={toast.key} msg={toast.msg} type={toast.type} onDone={()=>setToast(null)}/>}
+    </>
+  );
+}
+
+function Root(){
+  return (
+    <ReactFlowProvider>
+      <App/>
+    </ReactFlowProvider>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<Root/>);
+</script>
+</body>
+</html>
+
+

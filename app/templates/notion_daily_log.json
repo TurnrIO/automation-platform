@@ -1,0 +1,70 @@
+{
+  "name": "Notion Daily Log",
+  "description": "Creates a new daily log entry in a Notion database each morning with today's date.",
+  "category": "Productivity",
+  "tags": ["notion", "daily", "log", "cron"],
+  "graph_data": {
+    "nodes": [
+      {
+        "id": "trigger1",
+        "type": "trigger.cron",
+        "position": {"x": 60, "y": 200},
+        "data": {
+          "label": "Daily at 7am",
+          "config": {"cron": "0 7 * * *", "timezone": "UTC", "description": "Daily at 7am"},
+          "disabled": false,
+          "retry_max": 0,
+          "retry_delay": 5
+        }
+      },
+      {
+        "id": "script1",
+        "type": "action.run_script",
+        "position": {"x": 325, "y": 200},
+        "data": {
+          "label": "Build date string",
+          "config": {
+            "script": "import datetime\ntoday = datetime.date.today().isoformat()\nresult = {'date': today, 'title': f'Daily Log — {today}'}"
+          },
+          "disabled": false,
+          "retry_max": 0,
+          "retry_delay": 5
+        }
+      },
+      {
+        "id": "notion1",
+        "type": "action.notion",
+        "position": {"x": 590, "y": 200},
+        "data": {
+          "label": "Create log entry",
+          "config": {
+            "credential": "my-notion",
+            "action": "create_page",
+            "database_id": "YOUR_DATABASE_ID",
+            "properties_json": "{\"Name\":{\"title\":[{\"text\":{\"content\":\"{{script1.title}}\"}}]},\"Date\":{\"date\":{\"start\":\"{{script1.date}}\"}}}"
+          },
+          "disabled": false,
+          "retry_max": 1,
+          "retry_delay": 5
+        }
+      },
+      {
+        "id": "log1",
+        "type": "action.log",
+        "position": {"x": 855, "y": 200},
+        "data": {
+          "label": "Log page URL",
+          "config": {"message": "Created: {{notion1.url}}"},
+          "disabled": false,
+          "retry_max": 0,
+          "retry_delay": 5
+        }
+      }
+    ],
+    "edges": [
+      {"id": "e1", "source": "trigger1", "target": "script1", "sourceHandle": null, "targetHandle": null},
+      {"id": "e2", "source": "script1", "target": "notion1", "sourceHandle": null, "targetHandle": null},
+      {"id": "e3", "source": "notion1", "target": "log1", "sourceHandle": null, "targetHandle": null}
+    ]
+  }
+}
