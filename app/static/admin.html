@@ -1078,39 +1078,212 @@ function TraceRow({ t, fmtDur, dot }) {
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────
+function StatusDot({ status }) {
+  const colors = { ok:"#4ade80", warning:"#f59e0b", error:"#f87171", loading:"#64748b" };
+  const labels = { ok:"OK", warning:"Warning", error:"Error", loading:"…" };
+  return (
+    <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12}}>
+      <span style={{width:8,height:8,borderRadius:"50%",background:colors[status]||colors.loading,
+        boxShadow: status==="ok"?`0 0 5px ${colors.ok}80`: status==="error"?`0 0 5px ${colors.error}80`:"none",
+        flexShrink:0}}/>
+      <span style={{color:colors[status]||colors.loading,fontWeight:600}}>{labels[status]||status}</span>
+    </span>
+  );
+}
+
 function Settings({ showToast }) {
-  const [resetting, setResetting] = useState(false);
+  const [status,     setStatus]     = useState(null);
+  const [loadingSt,  setLoadingSt]  = useState(true);
+  const [nodes,      setNodes]      = useState([]);
+  const [reloading,  setReloading]  = useState(false);
+  const [resetting,  setResetting]  = useState(false);
+  const [clearing,   setClearing]   = useState(false);
+  const [trimming,   setTrimming]   = useState(false);
+  const [keepVal,    setKeepVal]    = useState("100");
+  const webhookBase = `${window.location.origin}/webhook/`;
+
+  useEffect(()=>{
+    loadStatus();
+    loadNodes();
+  },[]);
+
+  async function loadStatus() {
+    setLoadingSt(true);
+    try { setStatus(await api("GET","/api/system/status")); }
+    catch(e) { setStatus(null); }
+    setLoadingSt(false);
+  }
+
+  async function loadNodes() {
+    try { const r = await api("GET","/api/nodes"); setNodes(r.node_types||[]); }
+    catch(e) {}
+  }
+
+  async function reloadNodes() {
+    setReloading(true);
+    try {
+      const r = await api("POST","/api/admin/reload_nodes");
+      setNodes(r.node_types||[]);
+      showToast(`Reloaded — ${(r.node_types||[]).length} node types registered`);
+    } catch(e) { showToast(e.message,"error"); }
+    setReloading(false);
+  }
+
+  async function clearRuns() {
+    if(!window.confirm("Delete ALL run history? This cannot be undone.")) return;
+    setClearing(true);
+    try { await api("DELETE","/api/runs"); showToast("Run history cleared"); loadStatus(); }
+    catch(e) { showToast(e.message,"error"); }
+    setClearing(false);
+  }
+
+  async function trimRuns() {
+    const keep = parseInt(keepVal)||100;
+    if(!window.confirm(`Keep only the ${keep} most recent runs and delete the rest?`)) return;
+    setTrimming(true);
+    try {
+      const r = await api("POST","/api/runs/trim",{keep});
+      showToast(`Trimmed ${r.deleted} old run${r.deleted!==1?"s":""}`);
+      loadStatus();
+    } catch(e) { showToast(e.message,"error"); }
+    setTrimming(false);
+  }
+
   async function resetSeqs() {
-    if (!window.confirm("Reset ID sequences? Only safe when all tables are empty.")) return;
+    if(!window.confirm("Reset ID sequences? Only safe when all tables are empty.")) return;
     setResetting(true);
     try { await api("POST","/api/maintenance/reset_sequences"); showToast("Sequences reset"); }
     catch(e) { showToast(e.message,"error"); }
     setResetting(false);
   }
+
+  function copyToken() {
+    navigator.clipboard.writeText(TOKEN||"").then(()=>showToast("Token copied")).catch(()=>{});
+  }
+  function copyWebhook() {
+    navigator.clipboard.writeText(webhookBase).then(()=>showToast("Webhook URL copied")).catch(()=>{});
+  }
+
+  const st = status || {};
+  const db = st.db || {};
+  const redis = st.redis || {};
+  const worker = st.worker || {};
+  const sys = st.system || {};
+
+  const statusOf = s => loadingSt ? "loading" : (s.status||"error");
+
   return (
-    <div>
+    <div style={{maxWidth:820}}>
       <h1 className="page-title">Settings</h1>
+
+      {/* ── System Health ── */}
+      <div className="card">
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+          <div className="card-title" style={{margin:0}}>System Health</div>
+          <button className="btn btn-ghost btn-sm" onClick={loadStatus} disabled={loadingSt}>
+            {loadingSt ? "Checking…" : "↺ Refresh"}
+          </button>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:16}}>
+          {[
+            { label:"Database",      s: statusOf(db),     detail: db.status==="ok" ? `${db.db_size} · ${db.run_count} runs · ${db.flow_count} flows` : db.error },
+            { label:"Redis",         s: statusOf(redis),  detail: redis.status==="ok" ? redis.url : redis.error },
+            { label:"Celery Worker", s: statusOf(worker), detail: worker.status==="ok" ? `${worker.workers} worker${worker.workers!==1?"s":""} active` : worker.status==="warning" ? "No workers responding" : worker.error },
+          ].map(({label,s,detail})=>(
+            <div key={label} style={{background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:8,padding:"12px 14px"}}>
+              <div style={{fontSize:11,color:"#64748b",marginBottom:6,fontWeight:600,textTransform:"uppercase",letterSpacing:".05em"}}>{label}</div>
+              <StatusDot status={s}/>
+              {detail && <div style={{fontSize:11,color:"#475569",marginTop:5,wordBreak:"break-all"}}>{detail}</div>}
+            </div>
+          ))}
+        </div>
+        {sys.hostname && (
+          <div style={{display:"flex",gap:24,flexWrap:"wrap",fontSize:12,color:"#475569",borderTop:"1px solid #1e2130",paddingTop:12}}>
+            {[
+              ["Version", `v${sys.app_version}`],
+              ["Python",  sys.python],
+              ["Host",    sys.hostname],
+              ["PID",     sys.pid],
+              ["Platform",sys.platform],
+            ].map(([k,v])=>(
+              <span key={k}><span style={{color:"#64748b"}}>{k}: </span>{v}</span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Admin Token ── */}
       <div className="card">
         <div className="card-title">Admin Token</div>
-        <p style={{fontSize:13,color:"#94a3b8",marginBottom:12}}>Your admin token is passed as a URL query param (<code style={{color:"#a78bfa"}}>?token=...</code>) and as the <code style={{color:"#a78bfa"}}>x-admin-token</code> header.</p>
-        <code style={{display:"block",padding:"10px 12px",background:"#0f1117",borderRadius:6,fontSize:13,color:"#a78bfa",userSelect:"all"}}>{TOKEN || "(no token set)"}</code>
-      </div>
-      <div className="card">
-        <div className="card-title">Node Canvas</div>
-        <p style={{fontSize:13,color:"#94a3b8",marginBottom:12}}>Open the visual workflow builder.</p>
-        <button className="btn btn-primary" onClick={()=>window.open(`/canvas?token=${TOKEN}`)}>Open Canvas →</button>
-      </div>
-      <div className="card">
-        <div className="card-title">External Links</div>
-        <div style={{display:"flex",gap:10}}>
-          <a href="/flower/" target="_blank" className="btn btn-ghost">Flower monitor ↗</a>
-          <a href="/docs" target="_blank" className="btn btn-ghost">Swagger docs ↗</a>
+        <p style={{fontSize:13,color:"#94a3b8",marginBottom:10}}>Passed as <code style={{color:"#a78bfa"}}>?token=…</code> in the URL or as the <code style={{color:"#a78bfa"}}>x-admin-token</code> request header.</p>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <code style={{flex:1,padding:"9px 12px",background:"#0f1117",borderRadius:6,fontSize:13,color:"#a78bfa",userSelect:"all",border:"1px solid #2a2d3e"}}>{TOKEN||"(no token set)"}</code>
+          <button className="btn btn-ghost btn-sm" onClick={copyToken}>⎘ Copy</button>
         </div>
       </div>
+
+      {/* ── Webhook URL ── */}
       <div className="card">
-        <div className="card-title">Maintenance</div>
-        <p style={{fontSize:13,color:"#94a3b8",marginBottom:12}}>Reset PostgreSQL ID sequences. Only run this when all tables are empty.</p>
-        <button className="btn btn-danger" disabled={resetting} onClick={resetSeqs}>{resetting?"Resetting…":"Reset sequences"}</button>
+        <div className="card-title">Webhook Base URL</div>
+        <p style={{fontSize:13,color:"#94a3b8",marginBottom:10}}>Trigger flows via HTTP. Append the webhook token configured on a Webhook Trigger node.</p>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <code style={{flex:1,padding:"9px 12px",background:"#0f1117",borderRadius:6,fontSize:13,color:"#4ade80",userSelect:"all",border:"1px solid #2a2d3e"}}>{webhookBase}<span style={{color:"#64748b"}}>{"<token>"}</span></code>
+          <button className="btn btn-ghost btn-sm" onClick={copyWebhook}>⎘ Copy</button>
+        </div>
+      </div>
+
+      {/* ── Quick Links ── */}
+      <div className="card">
+        <div className="card-title">Quick Links</div>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+          <button className="btn btn-primary btn-sm" onClick={()=>window.open(`/canvas?token=${TOKEN}`)}>⚡ Open Canvas →</button>
+          <a href="/flower/" target="_blank" className="btn btn-ghost btn-sm">🌸 Flower monitor ↗</a>
+          <a href="/docs"    target="_blank" className="btn btn-ghost btn-sm">📖 Swagger docs ↗</a>
+        </div>
+      </div>
+
+      {/* ── Node Registry ── */}
+      <div className="card">
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+          <div className="card-title" style={{margin:0}}>Node Registry</div>
+          <button className="btn btn-ghost btn-sm" onClick={reloadNodes} disabled={reloading}>
+            {reloading?"Reloading…":"↺ Reload custom nodes"}
+          </button>
+        </div>
+        <p style={{fontSize:13,color:"#94a3b8",marginBottom:12}}>{nodes.length} node type{nodes.length!==1?"s":""} registered. Custom nodes live in <code style={{color:"#a78bfa"}}>app/nodes/custom/</code> and can be hot-reloaded without a restart.</p>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+          {nodes.map(n=>(
+            <span key={n} style={{background:"#1e2130",border:"1px solid #2a2d3e",borderRadius:4,padding:"3px 8px",fontSize:11,color:"#94a3b8",fontFamily:"monospace"}}>{n}</span>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Run History Management ── */}
+      <div className="card">
+        <div className="card-title">Run History</div>
+        {db.run_count!=null && <p style={{fontSize:13,color:"#94a3b8",marginBottom:14}}>{db.run_count} run{db.run_count!==1?"s":""} stored in the database.</p>}
+        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:12}}>
+          <span style={{fontSize:13,color:"#94a3b8"}}>Keep last</span>
+          <input type="number" value={keepVal} onChange={e=>setKeepVal(e.target.value)}
+            style={{width:70,background:"#0f1117",border:"1px solid #2a2d3e",borderRadius:6,padding:"5px 8px",color:"#e2e8f0",fontSize:13}}/>
+          <span style={{fontSize:13,color:"#94a3b8"}}>runs</span>
+          <button className="btn btn-ghost btn-sm" onClick={trimRuns} disabled={trimming}>
+            {trimming?"Trimming…":"Trim old runs"}
+          </button>
+        </div>
+        <div style={{borderTop:"1px solid #1e2130",paddingTop:12}}>
+          <button className="btn btn-danger btn-sm" onClick={clearRuns} disabled={clearing}>
+            {clearing?"Clearing…":"🗑 Clear all run history"}
+          </button>
+          <span style={{fontSize:11,color:"#475569",marginLeft:10}}>Permanently deletes all run records and traces.</span>
+        </div>
+      </div>
+
+      {/* ── Maintenance ── */}
+      <div className="card" style={{borderColor:"#7f1d1d44"}}>
+        <div className="card-title" style={{color:"#f87171"}}>Danger Zone</div>
+        <p style={{fontSize:13,color:"#94a3b8",marginBottom:12}}>Reset PostgreSQL ID sequences back to 1. <strong style={{color:"#f87171"}}>Only run this when all tables are completely empty</strong>, otherwise it will cause duplicate key errors.</p>
+        <button className="btn btn-danger btn-sm" disabled={resetting} onClick={resetSeqs}>{resetting?"Resetting…":"Reset ID sequences"}</button>
       </div>
     </div>
   );

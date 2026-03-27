@@ -205,6 +205,60 @@ def canvas_page(): return FileResponse(str(STATIC_DIR / "canvas.html"), media_ty
 @app.get("/health")
 def health(): return {"status": "ok", "version": "8"}
 
+@app.get("/api/system/status")
+def api_system_status(request: Request):
+    """Rich system health + info for the Settings page."""
+    _check_admin(request)
+    import sys, platform, socket
+
+    results = {}
+
+    # ── DB ────────────────────────────────────────────────────────────────
+    try:
+        from app.core.db import get_conn
+        with get_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM runs")
+            run_count = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM graph_workflows")
+            flow_count = cur.fetchone()[0]
+            cur.execute("SELECT pg_size_pretty(pg_database_size(current_database())) AS sz")
+            db_size = cur.fetchone()[0]
+        results["db"] = {"status": "ok", "run_count": run_count, "flow_count": flow_count, "db_size": db_size}
+    except Exception as e:
+        results["db"] = {"status": "error", "error": str(e)}
+
+    # ── Redis ─────────────────────────────────────────────────────────────
+    try:
+        from app.worker import celery_app
+        redis_url = celery_app.conf.broker_url or ""
+        import redis as _redis
+        r = _redis.from_url(redis_url, socket_connect_timeout=2)
+        r.ping()
+        results["redis"] = {"status": "ok", "url": redis_url.split("@")[-1]}
+    except Exception as e:
+        results["redis"] = {"status": "error", "error": str(e)}
+
+    # ── Celery worker ─────────────────────────────────────────────────────
+    try:
+        from app.worker import celery_app
+        pong = celery_app.control.ping(timeout=2)
+        worker_count = len(pong)
+        results["worker"] = {"status": "ok" if worker_count else "warning", "workers": worker_count}
+    except Exception as e:
+        results["worker"] = {"status": "error", "error": str(e)}
+
+    # ── System info ───────────────────────────────────────────────────────
+    results["system"] = {
+        "app_version": "8",
+        "python":      sys.version.split()[0],
+        "platform":    platform.system() + " " + platform.release(),
+        "hostname":    socket.gethostname(),
+        "pid":         os.getpid(),
+    }
+
+    return results
+
 # ── API: runs ─────────────────────────────────────────────────────────────
 def _sync_stuck_runs():
     """Reconcile queued/running runs against the Celery result backend.
@@ -287,6 +341,25 @@ def api_delete_run(run_id: int, request: Request): _check_admin(request); delete
 
 @app.delete("/api/runs")
 def api_clear_runs(request: Request): _check_admin(request); clear_runs(); return {"cleared": True}
+
+class TrimRunsBody(BaseModel):
+    keep: int = 100
+
+@app.post("/api/runs/trim")
+def api_trim_runs(body: TrimRunsBody, request: Request):
+    """Keep only the most recent `keep` runs; delete the rest."""
+    _check_admin(request)
+    from app.core.db import get_conn
+    with get_conn() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            DELETE FROM runs
+            WHERE id NOT IN (
+                SELECT id FROM runs ORDER BY id DESC LIMIT %s
+            )
+        """, (body.keep,))
+        deleted = cur.rowcount
+    return {"deleted": deleted, "kept": body.keep}
 
 @app.post("/api/runs/{run_id}/replay")
 async def api_replay_run(run_id: int, request: Request):
