@@ -3252,7 +3252,7 @@ def api_system_status(request: Request):
 
     # ── Redis ─────────────────────────────────────────────────────────────
     try:
-        from app.worker import celery_app
+        from app.worker import app as celery_app
         redis_url = celery_app.conf.broker_url or ""
         import redis as _redis
         r = _redis.from_url(redis_url, socket_connect_timeout=2)
@@ -3263,7 +3263,7 @@ def api_system_status(request: Request):
 
     # ── Celery worker ─────────────────────────────────────────────────────
     try:
-        from app.worker import celery_app
+        from app.worker import app as celery_app
         pong = celery_app.control.ping(timeout=2)
         worker_count = len(pong)
         results["worker"] = {"status": "ok" if worker_count else "warning", "workers": worker_count}
