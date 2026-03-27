@@ -516,6 +516,17 @@ def update_user_password(user_id: int, password_hash: str):
             (password_hash, user_id)
         )
 
+def update_user_role(user_id: int, role: str):
+    with get_conn() as conn:
+        conn.cursor().execute(
+            "UPDATE users SET role=%s, updated_at=NOW() WHERE id=%s",
+            (role, user_id)
+        )
+
+def delete_user(user_id: int):
+    with get_conn() as conn:
+        conn.cursor().execute("DELETE FROM users WHERE id=%s", (user_id,))
+
 # ── sessions ───────────────────────────────────────────────────────────────
 def create_session(user_id: int, token_hash: str):
     with get_conn() as conn:

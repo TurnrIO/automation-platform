@@ -18,7 +18,8 @@ from app.core.db import (
     list_graph_versions, save_graph_version, get_graph_version,
     get_run_metrics,
     users_exist, create_user, get_user_by_username, get_user_by_id, list_users,
-    update_user_password, create_session, delete_session_by_token_hash,
+    update_user_password, update_user_role, delete_user,
+    create_session, delete_session_by_token_hash,
 )
 from app.worker import enqueue_workflow, enqueue_graph, enqueue_script
 
@@ -48,6 +49,22 @@ def _check_admin(request: Request):
 def _check_api_key(key: str):
     if API_KEY and key != API_KEY:
         raise HTTPException(401, "Invalid API key")
+
+ROLE_LEVELS = {"viewer": 0, "admin": 1, "owner": 2}
+
+def _require_writer(request: Request):
+    """Authenticated + admin or owner role (viewers are read-only)."""
+    user = _check_admin(request)
+    if ROLE_LEVELS.get(user.get("role", "viewer"), 0) < 1:
+        raise HTTPException(403, "This action requires admin or owner role")
+    return user
+
+def _require_owner(request: Request):
+    """Authenticated + owner role only."""
+    user = _check_admin(request)
+    if user.get("role") != "owner":
+        raise HTTPException(403, "This action requires owner role")
+    return user
 
 def _auth_redirect(request: Request):
     """Returns a redirect to /setup or /login if the browser is not authenticated."""
@@ -328,6 +345,86 @@ def auth_change_password(body: ChangePasswordBody, request: Request):
     if len(body.new_password) < 8:
         raise HTTPException(422, "New password must be at least 8 characters")
     update_user_password(user["id"], hash_password(body.new_password))
+    return {"ok": True}
+
+# ── user management ───────────────────────────────────────────────────────
+@app.get("/api/users")
+def api_list_users(request: Request):
+    _require_writer(request)
+    return list_users()
+
+class CreateUserBody(BaseModel):
+    username: str
+    email: str
+    password: str
+    role: str = "viewer"
+
+@app.post("/api/users")
+def api_create_user(body: CreateUserBody, request: Request):
+    from app.auth import hash_password
+    actor = _require_writer(request)
+    if body.role == "owner":
+        raise HTTPException(400, "Cannot create another owner account")
+    if body.role == "admin" and actor.get("role") != "owner":
+        raise HTTPException(403, "Only owner can create admin accounts")
+    if body.role not in ("viewer", "admin"):
+        raise HTTPException(422, f"Invalid role '{body.role}'")
+    if len(body.password) < 8:
+        raise HTTPException(422, "Password must be at least 8 characters")
+    try:
+        user = create_user(body.username.strip(), body.email.strip().lower(),
+                           hash_password(body.password), body.role)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    return {"id": user["id"], "username": user["username"],
+            "email": user["email"], "role": user["role"]}
+
+class UpdateRoleBody(BaseModel):
+    role: str
+
+@app.patch("/api/users/{user_id}/role")
+def api_update_user_role(user_id: int, body: UpdateRoleBody, request: Request):
+    actor = _require_owner(request)
+    target = get_user_by_id(user_id)
+    if not target:
+        raise HTTPException(404, "User not found")
+    if target["role"] == "owner":
+        raise HTTPException(400, "Cannot change the owner's role")
+    if body.role == "owner":
+        raise HTTPException(400, "Cannot promote to owner")
+    if body.role not in ("viewer", "admin"):
+        raise HTTPException(422, f"Invalid role '{body.role}'")
+    update_user_role(user_id, body.role)
+    return {"ok": True}
+
+class ResetPasswordBody(BaseModel):
+    new_password: str
+
+@app.post("/api/users/{user_id}/reset-password")
+def api_reset_user_password(user_id: int, body: ResetPasswordBody, request: Request):
+    from app.auth import hash_password
+    actor = _require_writer(request)
+    target = get_user_by_id(user_id)
+    if not target:
+        raise HTTPException(404, "User not found")
+    if target["role"] == "owner" and actor.get("role") != "owner":
+        raise HTTPException(403, "Only owner can reset the owner's password")
+    if len(body.new_password) < 8:
+        raise HTTPException(422, "Password must be at least 8 characters")
+    update_user_password(user_id, hash_password(body.new_password))
+    return {"ok": True}
+
+@app.delete("/api/users/{user_id}")
+def api_delete_user(user_id: int, request: Request):
+    actor = _require_writer(request)
+    target = get_user_by_id(user_id)
+    if not target:
+        raise HTTPException(404, "User not found")
+    if target["role"] == "owner":
+        raise HTTPException(400, "Cannot delete the owner account")
+    if actor.get("id") == user_id:
+        raise HTTPException(400, "Cannot delete your own account")
+    delete_user(user_id)
     return {"ok": True}
 
 # ── health ────────────────────────────────────────────────────────────────

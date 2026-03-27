@@ -137,8 +137,19 @@ function Toast({ msg, type, onDone }) {
   return <div className={`toast ${type==="error"?"err":"ok"}`}>{type==="error"?"✗":"✓"} {msg}</div>;
 }
 
+// ── Viewer banner ──────────────────────────────────────────────────────────
+function ViewerBanner() {
+  return (
+    <div style={{background:"#64748b14",border:"1px solid #64748b33",borderRadius:8,
+      padding:"8px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#94a3b8"}}>
+      <span>👁</span>
+      <span><strong style={{color:"#e2e8f0"}}>View-only mode.</strong> Your account has the Viewer role — you can browse but not make changes. Contact an admin to request elevated access.</span>
+    </div>
+  );
+}
+
 // ── Dashboard ──────────────────────────────────────────────────────────────
-function Dashboard({ showToast }) {
+function Dashboard({ showToast, user }) {
   const [runs, setRuns]       = useState([]);
   const [workflows, setWfs]   = useState([]);
   const [loading, setLoading] = useState(true);
@@ -182,9 +193,11 @@ function Dashboard({ showToast }) {
     catch(e) { showToast(e.message,"error"); }
   }
 
+  const ro = user?.role === "viewer";
   return (
     <div>
       <h1 className="page-title">Dashboard</h1>
+      {ro && <ViewerBanner/>}
       <div className="stat-grid">
         <div className="stat-card"><div className="stat-val">{stats.total}</div><div className="stat-lbl">Total Runs</div></div>
         <div className="stat-card"><div className="stat-val" style={{color:"#60a5fa"}}>{stats.active}</div><div className="stat-lbl">Active</div></div>
@@ -200,10 +213,10 @@ function Dashboard({ showToast }) {
                 <div className="wf-name">{w.name}</div>
                 <div className={w.enabled?"wf-enabled":"wf-disabled"}>{w.enabled?"● enabled":"○ disabled"}</div>
               </div>
-              <div style={{display:"flex",gap:8}}>
+              {!ro && <div style={{display:"flex",gap:8}}>
                 <button className="btn btn-ghost" onClick={()=>toggleWf(w.name)}>Toggle</button>
                 <button className="btn btn-success" disabled={!w.enabled} onClick={()=>runWf(w.name)}>▶ Run</button>
-              </div>
+              </div>}
             </div>
           ))}
         </div>
@@ -211,7 +224,7 @@ function Dashboard({ showToast }) {
       <div className="card">
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
           <div className="card-title" style={{marginBottom:0}}>Recent Runs</div>
-          <button className="btn btn-ghost" onClick={()=>api("DELETE","/api/runs").then(load)}>Clear all</button>
+          {!ro && <button className="btn btn-ghost" onClick={()=>api("DELETE","/api/runs").then(load)}>Clear all</button>}
         </div>
         {loading ? <div className="empty-state">Loading…</div> : runs.length === 0 ? (
           <div className="empty-state">No runs yet. Trigger a workflow to get started.</div>
@@ -440,7 +453,7 @@ function Metrics({ showToast }) {
 }
 
 // ── Scripts ────────────────────────────────────────────────────────────────
-function Scripts({ showToast }) {
+function Scripts({ showToast, user }) {
   const [scripts, setScripts]           = useState([]);
   const [selectedScript, setSelectedScript] = useState(null);
   const [loadingContent, setLoadingContent] = useState(false);
@@ -549,12 +562,14 @@ function Scripts({ showToast }) {
     } catch(e) { showToast(e.message, "error"); }
   }
 
+  const ro = user?.role === "viewer";
   return (
     <div style={{display:"flex",flexDirection:"column",height:"100vh"}}>
       <h1 className="page-title">Scripts</h1>
+      {ro && <ViewerBanner/>}
       <div style={{display:"flex",flex:1,overflow:"hidden",marginTop:-24,marginLeft:-32,marginRight:-32,marginBottom:-32}}>
         <div className="script-list">
-          <div style={{padding:"10px 14px",borderBottom:"1px solid #2a2d3e"}}>
+          {!ro && <div style={{padding:"10px 14px",borderBottom:"1px solid #2a2d3e"}}>
             <form onSubmit={createScript}>
               <input
                 type="text"
@@ -567,7 +582,7 @@ function Scripts({ showToast }) {
                 {creating ? "Creating…" : "+ Create"}
               </button>
             </form>
-          </div>
+          </div>}
           <div style={{flex:1,overflowY:"auto"}}>
             {scripts.length === 0 && (
               <div style={{padding:"16px 14px",color:"#475569",fontSize:12}}>No scripts yet. Create one above.</div>
@@ -591,9 +606,9 @@ function Scripts({ showToast }) {
             <>
               <div className="editor-toolbar">
                 <span style={{color:"#64748b",fontSize:12,marginRight:"auto",fontFamily:"monospace"}}>{selectedScript.name}.py</span>
-                <button className="btn btn-primary" onClick={saveScript}>💾 Save</button>
-                <button className="btn btn-success" onClick={runScript}>▶ Run</button>
-                <button className="btn btn-danger" onClick={deleteScript}>✕ Delete</button>
+                {!ro && <button className="btn btn-primary" onClick={saveScript}>💾 Save</button>}
+                {!ro && <button className="btn btn-success" onClick={runScript}>▶ Run</button>}
+                {!ro && <button className="btn btn-danger" onClick={deleteScript}>✕ Delete</button>}
               </div>
               <div className="editor-container" ref={editorContainerRef}/>
             </>
@@ -675,7 +690,7 @@ function credFieldSummary(type) {
   return schema.fields.filter(f=>!f.secret).map(f=>f.l).join(' · ');
 }
 
-function Credentials({ showToast }) {
+function Credentials({ showToast, user }) {
   const [credentials, setCredentials] = useState([]);
   const [form, setForm] = useState({name:"", type:"generic", note:"", sub: blankSubFields("generic")});
   const [loading, setLoading] = useState(true);
@@ -731,14 +746,16 @@ function Credentials({ showToast }) {
     aws:        <>Reference fields directly: <code style={{color:"#a78bfa"}}>{"{{creds.name.access_key_id}}"}</code>, <code style={{color:"#a78bfa"}}>{"{{creds.name.secret_access_key}}"}</code>, <code style={{color:"#a78bfa"}}>{"{{creds.name.region}}"}</code>.</>,
   };
 
+  const ro = user?.role === "viewer";
   return (
     <div>
       <h1 className="page-title">Credentials</h1>
+      {ro && <ViewerBanner/>}
       <div className="info-box">
         🔑 Secrets are never exposed in flow exports or logs.&nbsp;
         {usageHints[form.type] || usageHints.generic}
       </div>
-      <div className="card">
+      {!ro && <div className="card">
         <div className="card-title">New Credential</div>
         <form onSubmit={create}>
           <div className="form-row">
@@ -799,7 +816,7 @@ function Credentials({ showToast }) {
           </div>
           <button type="submit" className="btn btn-primary">+ Create</button>
         </form>
-      </div>
+      </div>}
       <div className="card">
         <div className="card-title">Your Credentials</div>
         {loading ? <div className="empty-state">Loading…</div> : credentials.length === 0 ? (
@@ -815,7 +832,7 @@ function Credentials({ showToast }) {
                   <td style={{color:"#475569",fontSize:11}}>{credFieldSummary(c.type) || <span style={{color:"#334155"}}>••••••••</span>}</td>
                   <td style={{color:"#64748b",fontSize:12}}>{c.note||"—"}</td>
                   <td style={{color:"#64748b",fontSize:12}}>{new Date(c.created_at).toLocaleString()}</td>
-                  <td><button className="btn btn-danger" onClick={()=>del(c.id)}>✕</button></td>
+                  {!ro && <td><button className="btn btn-danger" onClick={()=>del(c.id)}>✕</button></td>}
                 </tr>
               ))}
             </tbody>
@@ -1073,7 +1090,7 @@ function FlowPicker({ value, onChange, graphs, scripts }) {
   );
 }
 
-function Schedules({ showToast }) {
+function Schedules({ showToast, user }) {
   const [schedules, setSchedules] = useState([]);
   const [graphs,    setGraphs]    = useState([]);
   const [scripts,   setScripts]   = useState([]);
@@ -1097,10 +1114,12 @@ function Schedules({ showToast }) {
   async function toggle(id) { try { await api("POST",`/api/schedules/${id}/toggle`); load(); } catch(e){ showToast(e.message,"error"); }}
   async function del(id)    { try { await api("DELETE",`/api/schedules/${id}`); load(); } catch(e){ showToast(e.message,"error"); }}
 
+  const ro = user?.role === "viewer";
   return (
     <div>
       <h1 className="page-title">Schedules</h1>
-      <div className="card">
+      {ro && <ViewerBanner/>}
+      {!ro && <div className="card">
         <div className="card-title">New Schedule</div>
         <form onSubmit={create}>
           <div className="form-row">
@@ -1123,7 +1142,7 @@ function Schedules({ showToast }) {
           <div className="form-group"><label>Payload (JSON)</label><input value={form.payload} onChange={e=>setForm({...form,payload:e.target.value})} placeholder="{}"/></div>
           <button type="submit" className="btn btn-primary">+ Create</button>
         </form>
-      </div>
+      </div>}
       <div className="card">
         <div className="card-title">Scheduled Jobs</div>
         {schedules.length===0 ? <div className="empty-state">No schedules yet.</div> : (
@@ -1137,10 +1156,10 @@ function Schedules({ showToast }) {
                   <td style={{fontFamily:"monospace",fontSize:12}}>{s.cron}</td>
                   <td>{s.timezone}</td>
                   <td><span className={`badge ${s.enabled?"badge-succeeded":"badge-cancelled"}`}>{s.enabled?"active":"paused"}</span></td>
-                  <td><div style={{display:"flex",gap:6}}>
+                  {!ro && <td><div style={{display:"flex",gap:6}}>
                     <button className="btn btn-ghost" onClick={()=>toggle(s.id)}>{s.enabled?"Pause":"Resume"}</button>
                     <button className="btn btn-danger" onClick={()=>del(s.id)}>✕</button>
-                  </div></td>
+                  </div></td>}
                 </tr>
               ))}
             </tbody>
@@ -1550,7 +1569,7 @@ function Settings({ showToast }) {
 }
 
 // ── Graphs ────────────────────────────────────────────────────────────────
-function Graphs({ showToast }) {
+function Graphs({ showToast, user }) {
   const [graphs, setGraphs]     = useState([]);
   const [loading, setLoading]   = useState(true);
   const [running, setRunning]   = useState(null);
@@ -1618,16 +1637,18 @@ function Graphs({ showToast }) {
   const exampleFlows = filtered.filter(g=>isExample(g.name));
   const userFlows    = filtered.filter(g=>!isExample(g.name));
 
+  const ro = user?.role === "viewer";
   return (
     <div>
+      {ro && <ViewerBanner/>}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
         <h1 className="page-title" style={{marginBottom:0}}>Canvas Flows</h1>
-        <div style={{display:"flex",gap:8}}>
+        {!ro && <div style={{display:"flex",gap:8}}>
           <button className="btn btn-ghost" disabled={reseeding} onClick={reseedExamples} title="Restore any missing example flows">
             {reseeding ? "Reseeding…" : "↺ Restore examples"}
           </button>
           <a href={`/canvas`} className="btn btn-primary">+ New in Canvas</a>
-        </div>
+        </div>}
       </div>
 
       <div style={{marginBottom:16}}>
@@ -1655,7 +1676,7 @@ function Graphs({ showToast }) {
                 <span style={{fontSize:11,color:"#64748b"}}>Duplicate to make your own copy</span>
               </div>
               {exampleFlows.map(g=>(
-                <GraphRow key={g.id} g={g} running={running} onRun={runGraph} onToggle={toggleGraph} onDuplicate={duplicateGraph} onDelete={deleteGraph} onRename={renameGraph} showToast={showToast} load={load} isExample={true}/>
+                <GraphRow key={g.id} g={g} running={running} onRun={runGraph} onToggle={toggleGraph} onDuplicate={duplicateGraph} onDelete={deleteGraph} onRename={renameGraph} showToast={showToast} load={load} isExample={true} ro={ro}/>
               ))}
             </div>
           )}
@@ -1676,7 +1697,7 @@ function Graphs({ showToast }) {
   );
 }
 
-function GraphRow({ g, running, onRun, onToggle, onDuplicate, onDelete, onRename, showToast, load, isExample }) {
+function GraphRow({ g, running, onRun, onToggle, onDuplicate, onDelete, onRename, showToast, load, isExample, ro }) {
   const [open, setOpen] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
   const [versions, setVersions] = useState([]);
@@ -1717,10 +1738,10 @@ function GraphRow({ g, running, onRun, onToggle, onDuplicate, onDelete, onRename
           </div>
           <div style={{display:"flex",gap:6,flex:"none"}}>
             <a href={`/canvas`} className="btn btn-ghost"
-               onClick={()=>sessionStorage.setItem("canvas_open_graph",g.id)}>✏️ Edit</a>
-            <button className="btn btn-success" disabled={running===g.id||!g.enabled}
-                    onClick={()=>onRun(g.id,g.name)}>{running===g.id?"…":"▶"}</button>
-            <button className="btn btn-ghost" onClick={()=>setOpen(o=>!o)}>⋯</button>
+               onClick={()=>sessionStorage.setItem("canvas_open_graph",g.id)}>{ro?"👁 View":"✏️ Edit"}</a>
+            {!ro && <button className="btn btn-success" disabled={running===g.id||!g.enabled}
+                    onClick={()=>onRun(g.id,g.name)}>{running===g.id?"…":"▶"}</button>}
+            {!ro && <button className="btn btn-ghost" onClick={()=>setOpen(o=>!o)}>⋯</button>}
           </div>
         </div>
         {open && (
@@ -1871,6 +1892,199 @@ function Templates({ showToast }) {
   );
 }
 
+// ── Users & Permissions ────────────────────────────────────────────────────
+const ROLE_META = {
+  owner: { label:"Owner",  color:"#f59e0b", bg:"#f59e0b14", desc:"Full access to everything, including user management and danger-zone actions. Only one owner account exists." },
+  admin: { label:"Admin",  color:"#a78bfa", bg:"#7c3aed14", desc:"Full access to flows, schedules, credentials, scripts, and settings. Can manage viewer accounts." },
+  viewer:{ label:"Viewer", color:"#64748b", bg:"#64748b14", desc:"Read-only access. Can view flows, runs, metrics, and logs but cannot create, edit, delete, or trigger anything." },
+};
+
+function RoleBadge({ role }) {
+  const m = ROLE_META[role] || ROLE_META.viewer;
+  return <span style={{fontSize:10,fontWeight:700,borderRadius:4,padding:"2px 7px",
+    background:m.bg,color:m.color,textTransform:"uppercase",letterSpacing:".05em"}}>{m.label}</span>;
+}
+
+function Users({ showToast, user }) {
+  const [users, setUsers]   = useState([]);
+  const [form, setForm]     = useState({username:"",email:"",password:"",role:"viewer"});
+  const [creating, setCreating] = useState(false);
+  const [resetModal, setResetModal] = useState(null); // {id, username}
+  const [newPw, setNewPw]   = useState("");
+  const isOwner = user?.role === "owner";
+  const isAdmin = user?.role === "admin" || isOwner;
+
+  const load = () => api("GET","/api/users").then(setUsers).catch(()=>{});
+  useEffect(()=>{ load(); },[]);
+
+  async function create(e) {
+    e.preventDefault();
+    setCreating(true);
+    try {
+      await api("POST","/api/users", form);
+      setForm({username:"",email:"",password:"",role:"viewer"});
+      load(); showToast("User created");
+    } catch(err) { showToast(err.message,"error"); }
+    setCreating(false);
+  }
+
+  async function changeRole(id, role) {
+    try { await api("PATCH",`/api/users/${id}/role`,{role}); load(); showToast("Role updated"); }
+    catch(err) { showToast(err.message,"error"); }
+  }
+
+  async function deleteUser(id, username) {
+    if(!window.confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+    try { await api("DELETE",`/api/users/${id}`); load(); showToast("User deleted"); }
+    catch(err) { showToast(err.message,"error"); }
+  }
+
+  async function resetPassword(e) {
+    e.preventDefault();
+    try {
+      await api("POST",`/api/users/${resetModal.id}/reset-password`,{new_password:newPw});
+      setResetModal(null); setNewPw(""); showToast("Password reset");
+    } catch(err) { showToast(err.message,"error"); }
+  }
+
+  return (
+    <div>
+      <h1 className="page-title">Users &amp; Permissions</h1>
+
+      {/* ── Role documentation ── */}
+      <div className="card">
+        <div className="card-title">Roles &amp; Permissions</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:12,marginBottom:4}}>
+          {Object.entries(ROLE_META).map(([role,m])=>(
+            <div key={role} style={{background:m.bg,border:`1px solid ${m.color}33`,borderRadius:10,padding:"12px 14px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                <span style={{fontSize:18}}>{role==="owner"?"👑":role==="admin"?"🛡":"👁"}</span>
+                <span style={{fontWeight:700,color:m.color,fontSize:13}}>{m.label}</span>
+              </div>
+              <p style={{fontSize:12,color:"#94a3b8",lineHeight:1.55,margin:0}}>{m.desc}</p>
+            </div>
+          ))}
+        </div>
+        <p style={{fontSize:12,color:"#475569",marginTop:10}}>
+          Roles are enforced on both the API and UI layers. The owner account cannot be deleted or demoted.
+          Password resets for any user can be performed by the owner; admins can reset viewer passwords.
+        </p>
+      </div>
+
+      {/* ── Create user ── */}
+      {isAdmin && (
+        <div className="card">
+          <div className="card-title">Create User</div>
+          <form onSubmit={create}>
+            <div className="form-row">
+              <div className="form-group">
+                <label>Username</label>
+                <input required value={form.username} onChange={e=>setForm({...form,username:e.target.value})} placeholder="jsmith"/>
+              </div>
+              <div className="form-group">
+                <label>Email</label>
+                <input required type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="j@example.com"/>
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>Password</label>
+                <input required type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="At least 8 characters"/>
+              </div>
+              <div className="form-group">
+                <label>Role</label>
+                <select value={form.role} onChange={e=>setForm({...form,role:e.target.value})}>
+                  <option value="viewer">Viewer — read-only</option>
+                  {isOwner && <option value="admin">Admin — full access</option>}
+                </select>
+              </div>
+            </div>
+            <button type="submit" className="btn btn-primary" disabled={creating}>{creating?"Creating…":"+ Create User"}</button>
+          </form>
+        </div>
+      )}
+
+      {/* ── Users table ── */}
+      <div className="card">
+        <div className="card-title">All Users</div>
+        {users.length === 0 ? <div className="empty-state">No users found.</div> : (
+          <table>
+            <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Joined</th>{isAdmin && <th></th>}</tr></thead>
+            <tbody>
+              {users.map(u=>{
+                const isMe = user?.id === u.id;
+                const canEdit = isOwner || (isAdmin && u.role !== "owner" && u.role !== "admin");
+                return (
+                  <tr key={u.id}>
+                    <td>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <div style={{width:28,height:28,borderRadius:"50%",flexShrink:0,
+                          background: u.role==="owner"?"#f59e0b22": u.role==="admin"?"#7c3aed22":"#64748b22",
+                          border:`1px solid ${u.role==="owner"?"#f59e0b55":u.role==="admin"?"#7c3aed55":"#64748b55"}`,
+                          display:"flex",alignItems:"center",justifyContent:"center",
+                          fontSize:11,fontWeight:700,
+                          color: u.role==="owner"?"#f59e0b":u.role==="admin"?"#a78bfa":"#64748b"}}>
+                          {u.username[0].toUpperCase()}
+                        </div>
+                        <span style={{fontWeight:500}}>{u.username}{isMe && <span style={{fontSize:10,color:"#475569",marginLeft:5}}>(you)</span>}</span>
+                      </div>
+                    </td>
+                    <td style={{fontSize:12,color:"#64748b"}}>{u.email}</td>
+                    <td>
+                      {(isOwner && u.role !== "owner") ? (
+                        <select value={u.role} onChange={e=>changeRole(u.id,e.target.value)}
+                          style={{fontSize:11,padding:"2px 6px",background:"#0d0f1a",border:"1px solid #2a2d3e",color:"#e2e8f0",borderRadius:4}}>
+                          <option value="viewer">Viewer</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                      ) : <RoleBadge role={u.role}/>}
+                    </td>
+                    <td style={{fontSize:12,color:"#64748b"}}>{new Date(u.created_at).toLocaleDateString()}</td>
+                    {isAdmin && (
+                      <td>
+                        <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+                          {canEdit && (
+                            <button className="btn btn-ghost btn-sm" onClick={()=>{setResetModal({id:u.id,username:u.username});setNewPw("");}}>
+                              🔑 Reset pw
+                            </button>
+                          )}
+                          {canEdit && !isMe && (
+                            <button className="btn btn-ghost btn-sm" style={{color:"#f87171"}}
+                              onClick={()=>deleteUser(u.id,u.username)}>✕</button>
+                          )}
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* ── Reset password modal ── */}
+      {resetModal && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div className="card" style={{width:360,margin:0}}>
+            <div className="card-title">Reset password — {resetModal.username}</div>
+            <form onSubmit={resetPassword}>
+              <div className="form-group">
+                <label>New Password</label>
+                <input required type="password" value={newPw} onChange={e=>setNewPw(e.target.value)} placeholder="At least 8 characters" autoFocus/>
+              </div>
+              <div style={{display:"flex",gap:8,marginTop:4}}>
+                <button type="submit" className="btn btn-primary" disabled={newPw.length<8}>Reset Password</button>
+                <button type="button" className="btn btn-ghost" onClick={()=>setResetModal(null)}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── App shell ─────────────────────────────────────────────────────────────
 const PAGES = [
   {id:"dashboard",  icon:"⬛", label:"Dashboard"},
@@ -1881,6 +2095,7 @@ const PAGES = [
   {id:"credentials",icon:"🔑", label:"Credentials"},
   {id:"schedules",  icon:"⏰", label:"Schedules"},
   {id:"logs",       icon:"📋", label:"Logs"},
+  {id:"users",      icon:"👥", label:"Users"},
   {id:"settings",   icon:"⚙",  label:"Settings"},
 ];
 
@@ -1963,15 +2178,16 @@ function App() {
         </div>
       </div>
       <div className="main">
-        {page==="dashboard"  && <Dashboard  showToast={showToast}/>}
-        {page==="graphs"     && <Graphs     showToast={showToast}/>}
-        {page==="templates"  && <Templates  showToast={showToast}/>}
-        {page==="metrics"    && <Metrics    showToast={showToast}/>}
-        {page==="scripts"    && <Scripts    showToast={showToast}/>}
-        {page==="credentials"&& <Credentials showToast={showToast}/>}
-        {page==="schedules"  && <Schedules  showToast={showToast}/>}
-        {page==="logs"       && <Logs       showToast={showToast}/>}
-        {page==="settings"   && <Settings   showToast={showToast}/>}
+        {page==="dashboard"  && <Dashboard   showToast={showToast} user={currentUser}/>}
+        {page==="graphs"     && <Graphs      showToast={showToast} user={currentUser}/>}
+        {page==="templates"  && <Templates   showToast={showToast} user={currentUser}/>}
+        {page==="metrics"    && <Metrics     showToast={showToast} user={currentUser}/>}
+        {page==="scripts"    && <Scripts     showToast={showToast} user={currentUser}/>}
+        {page==="credentials"&& <Credentials showToast={showToast} user={currentUser}/>}
+        {page==="schedules"  && <Schedules   showToast={showToast} user={currentUser}/>}
+        {page==="logs"       && <Logs        showToast={showToast} user={currentUser}/>}
+        {page==="users"      && <Users       showToast={showToast} user={currentUser}/>}
+        {page==="settings"   && <Settings    showToast={showToast} user={currentUser}/>}
       </div>
       {toast && <Toast key={toast.key} msg={toast.msg} type={toast.type} onDone={()=>setToast(null)}/>}
     </>
