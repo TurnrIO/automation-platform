@@ -11,4 +11,4 @@ apscheduler==3.10.4
 openai>=1.30.0
 paramiko==3.4.0
 google-auth
-passlib[bcrypt]==1.7.4
+bcrypt==4.1.3

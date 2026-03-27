@@ -1,6 +1,6 @@
 """Authentication helpers — session-cookie based auth (v12)."""
 import hashlib, secrets
-from passlib.context import CryptContext
+import bcrypt
 from fastapi import Request
 
 from app.core.db import (
@@ -9,18 +9,16 @@ from app.core.db import (
     refresh_session,
 )
 
-_pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 SESSION_COOKIE = "hr_session"
 SESSION_DAYS   = 30
 
 
 def hash_password(password: str) -> str:
-    return _pwd.hash(password)
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return _pwd.verify(plain, hashed)
+    return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
 def hash_token(token: str) -> str:
