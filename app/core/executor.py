@@ -119,9 +119,9 @@ def run_graph(graph_data: dict, initial_payload: dict = None, logger=None, _dept
                 break
         context[nid] = inp
 
-        # Store input in trace (capped at 500KB)
+        # Store input in trace (capped at 5MB)
         _inp_str    = json.dumps(inp, default=str) if isinstance(inp, (dict, list)) else str(inp)
-        _inp_stored = inp if len(_inp_str) < 500000 else {'__truncated': True, '__size': len(_inp_str)}
+        _inp_stored = inp if len(_inp_str) < 5000000 else {'__truncated': True, '__size': len(_inp_str)}
 
         trace = {
             'node_id':     nid,
@@ -208,7 +208,7 @@ def run_graph(graph_data: dict, initial_payload: dict = None, logger=None, _dept
         results[nid] = result
         trace['status'] = 'ok'
         _out_str = json.dumps(result, default=str) if isinstance(result, (dict, list)) else str(result)
-        trace['output'] = result if len(_out_str) < 500000 else {'__truncated': True, '__size': len(_out_str)}
+        trace['output'] = result if len(_out_str) < 5000000 else {'__truncated': True, '__size': len(_out_str)}
         traces.append(trace)
 
         # ── condition branching ───────────────────────────────────────

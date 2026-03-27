@@ -553,14 +553,16 @@ function JsonSchemaTree({ data, depth, sourceNodeId, fieldPath }){
   return <Draggable><span style={{color:"#94a3b8"}}>{String(data)}</span></Draggable>;
 }
 
+const NIO_DISPLAY_LINES = 500; // max lines to render before capping
+
 // Inner panel body — shared between inline panel and expanded modal
 function NioBody({ data, view, sourceNodeId, isTruncated }){
   if(isTruncated){
     const kb = data.__size ? Math.round(data.__size / 1024) : "?";
     return (
       <div style={{color:"#64748b",fontSize:11,padding:"6px 0"}}>
-        <div style={{color:"#f59e0b",marginBottom:4}}>⚠ Output too large to display ({kb} KB)</div>
-        <div style={{fontSize:10,color:"#475569"}}>The data was stored but exceeds the display limit. Use Run Script or Transform to extract the fields you need.</div>
+        <div style={{color:"#f59e0b",marginBottom:4}}>⚠ Payload too large to display ({kb} KB)</div>
+        <div style={{fontSize:10,color:"#475569"}}>Exceeds the 5 MB display limit. Use a Transform or Run Script node to extract only the fields you need.</div>
       </div>
     );
   }
@@ -577,8 +579,22 @@ function NioBody({ data, view, sourceNodeId, isTruncated }){
         <JsonSchemaTree data={data} depth={0} sourceNodeId={sourceNodeId} fieldPath={null}/>
       </div>
     );
-  const jsonStr = (data === null) ? "null" : (typeof data === "string" ? data : JSON.stringify(data, null, 2));
-  return <pre className="nio-json">{jsonStr}</pre>;
+  const fullStr = (data === null) ? "null" : (typeof data === "string" ? data : JSON.stringify(data, null, 2));
+  const lines = fullStr.split("\n");
+  const capped = lines.length > NIO_DISPLAY_LINES;
+  const displayed = capped ? lines.slice(0, NIO_DISPLAY_LINES).join("\n") : fullStr;
+  function copyFull(){ navigator.clipboard.writeText(fullStr).catch(()=>{}); }
+  return (
+    <div>
+      <pre className="nio-json">{displayed}</pre>
+      {capped && (
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"5px 8px",background:"#0f1117",borderTop:"1px solid #2a2d3e",fontSize:10,color:"#64748b"}}>
+          <span>Showing {NIO_DISPLAY_LINES} of {lines.length} lines ({Math.round(fullStr.length/1024)} KB)</span>
+          <button onClick={copyFull} style={{background:"#2a2d3e",border:"none",color:"#94a3b8",borderRadius:4,padding:"2px 8px",cursor:"pointer",fontSize:10}}>⎘ Copy all</button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function NodeIOPanel({ runInput, runOutput, runStatus, runDurationMs, runAttempts, nodeId, upstreamNodeId, nodeLabel }){
