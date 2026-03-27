@@ -2549,8 +2549,6 @@ function App(){
     } catch(e){ showToast(e.message,"error") }
   }
 
-  const token = getToken();
-
   return (
     <>
       {/* Hidden import file input */}
@@ -2608,7 +2606,7 @@ function App(){
           <button className="btn btn-ghost btn-sm" style={{color:"#f87171"}} onClick={()=>loadInspectorRun(null)} title="Clear run overlay">✕</button>
         )}
         <div className="tb-divider"/>
-        <a href={`/admin?token=${token}`} className="btn btn-ghost btn-sm">← Admin</a>
+        <a href="/admin" className="btn btn-ghost btn-sm">← Admin</a>
         <button className="btn btn-ghost btn-sm" onClick={()=>setShowTestModal(true)} disabled={!currentGraph}>🧪 Test</button>
         <button className="btn btn-ghost btn-sm" onClick={saveGraph} disabled={saving} title="Save (Ctrl+S)">
           {saving ? <><span style={{animation:"spin .8s linear infinite",display:"inline-block"}}>⟳</span> Saving…</> : "💾 Save"}
