@@ -1,5 +1,8 @@
 :80 {
   handle /flower/* {
+    forward_auth api:8000 {
+      uri /api/auth/check
+    }
     reverse_proxy flower:5555
   }
   handle {

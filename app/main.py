@@ -1,7 +1,7 @@
 import os, json, logging, secrets as _sec
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Header, Request
-from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional
@@ -27,7 +27,7 @@ from app.worker import enqueue_workflow, enqueue_graph, enqueue_script
 import re as _re
 log          = logging.getLogger(__name__)
 SCRIPTS_DIR  = Path(__file__).parent / 'workflows'
-app          = FastAPI(title="HiveRunr")
+app          = FastAPI(title="HiveRunr", docs_url=None, redoc_url=None, openapi_url=None)
 STATIC_DIR   = Path(__file__).parent / "static"
 RUNLOGS_DIR  = Path("/app/runlogs")
 WORKFLOWS    = ["example"]
@@ -266,6 +266,47 @@ def canvas_page(request: Request):
     redir = _auth_redirect(request)
     if redir: return redir
     return FileResponse(str(STATIC_DIR / "canvas.html"), media_type="text/html")
+
+# ── API docs (auth-gated) ──────────────────────────────────────────────────
+@app.get("/openapi.json", include_in_schema=False)
+def openapi_schema(request: Request):
+    redir = _auth_redirect(request)
+    if redir: return redir
+    return JSONResponse(app.openapi())
+
+@app.get("/docs", include_in_schema=False)
+def docs_page(request: Request):
+    redir = _auth_redirect(request)
+    if redir: return redir
+    from fastapi.openapi.docs import get_swagger_ui_html
+    return get_swagger_ui_html(openapi_url="/openapi.json", title="HiveRunr API")
+
+@app.get("/redoc", include_in_schema=False)
+def redoc_page(request: Request):
+    redir = _auth_redirect(request)
+    if redir: return redir
+    from fastapi.openapi.docs import get_redoc_html
+    return get_redoc_html(openapi_url="/openapi.json", title="HiveRunr API")
+
+# ── Caddy forward_auth gate ────────────────────────────────────────────────
+@app.get("/api/auth/check", include_in_schema=False)
+def auth_check(request: Request):
+    """Called by Caddy forward_auth before proxying to Flower (and any future
+    sub-services). Returns 200 if the request carries a valid session cookie or
+    API token; returns a redirect to /login otherwise so Caddy forwards the
+    redirect straight to the browser."""
+    from app.auth import get_current_user, hash_token
+    if get_current_user(request):
+        return Response(status_code=200)
+    raw = (request.headers.get("x-api-token")
+           or request.headers.get("x-admin-token"))
+    if raw:
+        th = hash_token(raw)
+        tok = get_api_token_by_hash(th)
+        if tok:
+            touch_api_token(th)
+            return Response(status_code=200)
+    return RedirectResponse("/login", status_code=302)
 
 # ── auth endpoints ────────────────────────────────────────────────────────
 @app.get("/api/auth/status")
