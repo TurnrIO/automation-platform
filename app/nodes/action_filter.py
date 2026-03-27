@@ -8,7 +8,7 @@ LABEL = "Filter"
 def run(config, inp, context, logger, creds=None, **kwargs):
     """Filter items in a list based on an expression."""
     field = config.get('field', '')
-    expr = _render(config.get('expression', 'True'), context, creds)
+    expr = _render(config.get('expression') or 'True', context, creds)
     items = inp.get(field, inp) if field and isinstance(inp, dict) else inp
 
     if not isinstance(items, list):
