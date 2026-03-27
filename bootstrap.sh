@@ -755,9 +755,9 @@ def run_graph(graph_data: dict, initial_payload: dict = None, logger=None, _dept
                 break
         context[nid] = inp
 
-        # Store input in trace (capped at 2000 chars)
-        _inp_str    = json.dumps(inp) if isinstance(inp, dict) else str(inp)
-        _inp_stored = inp if len(_inp_str) < 2000 else {'__truncated': True, '__size': len(_inp_str)}
+        # Store input in trace (capped at 500KB)
+        _inp_str    = json.dumps(inp, default=str) if isinstance(inp, (dict, list)) else str(inp)
+        _inp_stored = inp if len(_inp_str) < 500000 else {'__truncated': True, '__size': len(_inp_str)}
 
         trace = {
             'node_id':     nid,
@@ -843,10 +843,8 @@ def run_graph(graph_data: dict, initial_payload: dict = None, logger=None, _dept
         context[nid] = result
         results[nid] = result
         trace['status'] = 'ok'
-        trace['output'] = (
-            result if not isinstance(result, dict) or len(str(result)) < 2000
-            else {'__truncated': True}
-        )
+        _out_str = json.dumps(result, default=str) if isinstance(result, (dict, list)) else str(result)
+        trace['output'] = result if len(_out_str) < 500000 else {'__truncated': True, '__size': len(_out_str)}
         traces.append(trace)
 
         # ── condition branching ───────────────────────────────────────
@@ -899,6 +897,7 @@ def run_graph(graph_data: dict, initial_payload: dict = None, logger=None, _dept
             results[nid] = context[nid]
 
     return {'context': context, 'results': results, 'traces': traces}
+
 
 EXEC_EOF
 
@@ -5655,8 +5654,15 @@ function JsonSchemaTree({ data, depth, sourceNodeId, fieldPath }){
 
 // Inner panel body — shared between inline panel and expanded modal
 function NioBody({ data, view, sourceNodeId, isTruncated }){
-  if(isTruncated)
-    return <div style={{color:"#64748b",fontStyle:"italic",fontSize:11}}>⚠ Data too large to display</div>;
+  if(isTruncated){
+    const kb = data.__size ? Math.round(data.__size / 1024) : "?";
+    return (
+      <div style={{color:"#64748b",fontSize:11,padding:"6px 0"}}>
+        <div style={{color:"#f59e0b",marginBottom:4}}>⚠ Output too large to display ({kb} KB)</div>
+        <div style={{fontSize:10,color:"#475569"}}>The data was stored but exceeds the display limit. Use Run Script or Transform to extract the fields you need.</div>
+      </div>
+    );
+  }
   if(data === undefined)
     return <div style={{color:"#475569",fontSize:11,fontStyle:"italic"}}>No data yet — run the flow first</div>;
   if(view === "schema")

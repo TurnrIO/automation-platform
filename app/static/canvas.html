@@ -555,8 +555,15 @@ function JsonSchemaTree({ data, depth, sourceNodeId, fieldPath }){
 
 // Inner panel body — shared between inline panel and expanded modal
 function NioBody({ data, view, sourceNodeId, isTruncated }){
-  if(isTruncated)
-    return <div style={{color:"#64748b",fontStyle:"italic",fontSize:11}}>⚠ Data too large to display</div>;
+  if(isTruncated){
+    const kb = data.__size ? Math.round(data.__size / 1024) : "?";
+    return (
+      <div style={{color:"#64748b",fontSize:11,padding:"6px 0"}}>
+        <div style={{color:"#f59e0b",marginBottom:4}}>⚠ Output too large to display ({kb} KB)</div>
+        <div style={{fontSize:10,color:"#475569"}}>The data was stored but exceeds the display limit. Use Run Script or Transform to extract the fields you need.</div>
+      </div>
+    );
+  }
   if(data === undefined)
     return <div style={{color:"#475569",fontSize:11,fontStyle:"italic"}}>No data yet — run the flow first</div>;
   if(view === "schema")
