@@ -75,7 +75,10 @@ def _req(method, path, token, body=None):
     url  = _BASE + path
     # SSRF: validate that _BASE (api.hubapi.com) is not being redirected to a blocked IP
     # The path is appended to _BASE so we validate the resolved IP of _BASE's hostname
-    _check_url_ssrf(url)
+    try:
+        _check_url_ssrf(url)
+    except ValueError as e:
+        return {"__error": f"HubSpot SSRF check failed: {e}"}
     data = json.dumps(body).encode() if body is not None else None
     req  = urllib.request.Request(url, data=data, method=method)
     req.add_header("Authorization", f"Bearer {token}")
