@@ -557,9 +557,7 @@ def create_schedule(
     with get_conn() as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(
-            "INSERT INTO schedules("
-            "(name,workflow,graph_id,cron,payload,timezone,run_at,workspace_id) "
-            "VALUES(%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            "INSERT INTO schedules(name,workflow,graph_id,cron,payload,timezone,run_at,workspace_id) VALUES(%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
             (name, workflow, graph_id, cron, json.dumps(payload or {}), timezone, run_at, workspace_id),
         )
         return dict(cur.fetchone())
@@ -651,8 +649,7 @@ def create_graph(name, description, graph_json, workspace_id: int | None = None,
             if not cur.fetchone():
                 break
         cur.execute(
-            "INSERT INTO graph_workflows("
-            "VALUES(%s,%s,%s,%s,%s,%s) RETURNING *",
+            "INSERT INTO graph_workflows(name,description,graph_json,slug,workspace_id,tags) VALUES(%s,%s,%s,%s,%s,%s) RETURNING *",
             (name, description, graph_json, slug, workspace_id, tags or []),
         )
         return dict(cur.fetchone())
