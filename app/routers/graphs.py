@@ -323,10 +323,14 @@ async def api_graph_run(graph_id: int, request: Request):
             from app.core.db import update_run, init_db
             init_db()
             update_run(task_id, "running")
-            try:
-                graph_data = json.loads(g.get('graph_json') or '{}')
-            except JSONDecodeError:
-                graph_data = {}
+        except (OSError, RuntimeError) as init_err:
+            log.warning("Could not initialize inline run: %s", init_err)
+            raise HTTPException(500, f"Graph run failed: {init_err}")
+        try:
+            graph_data = json.loads(g.get('graph_json') or '{}')
+        except JSONDecodeError:
+            graph_data = {}
+        try:
             result = run_graph(
                 graph_data,
                 payload,
