@@ -1,6 +1,8 @@
 """SFTP/FTP file transfer action node."""
 import io
+import ipaddress
 import logging
+import socket
 import stat as _stat
 import json
 from json import JSONDecodeError
@@ -12,6 +14,37 @@ logger = logging.getLogger(__name__)
 
 NODE_TYPE = "action.sftp"
 LABEL = "SFTP / FTP"
+
+_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("ff00::/8"),
+]
+
+
+def _is_internal_ip(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        return any(ip in net for net in _BLOCKED_NETWORKS)
+    except ValueError:
+        return True
+
+
+def _check_ssrf(host: str, port: int) -> None:
+    """Block connections to internal/reserved IPs via DNS resolution."""
+    try:
+        infos = socket.getaddrinfo(host, port)
+        for (_, _, _, _, sockaddr) in infos:
+            if _is_internal_ip(sockaddr[0]):
+                raise ValueError(f"SSRF blocked: resolved to internal IP {sockaddr[0]}")
+    except socket.gaierror:
+        raise ValueError(f"SSRF blocked: could not resolve hostname '{host}'")
 
 
 # ── helpers ───────────────────────────────────────────────────────────────
@@ -178,6 +211,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     if not host:
         raise ValueError("SFTP node: no host configured")
 
+    _check_ssrf(host, port)
+
     # ══════════════════════════════════════════════════════════════════════
     # SFTP
     # ══════════════════════════════════════════════════════════════════════
@@ -292,6 +327,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     # ══════════════════════════════════════════════════════════════════════
     elif protocol == 'ftp':
         import ftplib
+
+        _check_ssrf(host, port)
 
         ftp = ftplib.FTP()
         try:
