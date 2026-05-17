@@ -89,7 +89,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             status  = run_obj.get("status")
             if status in ("completed", "failed", "cancelled", "expired"):
                 break
-            time.sleep(0.1)  # interruptible — smaller step than 0.5s to reduce shutdown latency
+            try: time.sleep(0.1)  # interruptible — smaller step than 0.5s to reduce shutdown latency
+            except InterruptedError: break
 
         if run_obj.get("status") != "completed":
             raise RuntimeError(f"OpenAI run {run_id} ended with status: {run_obj.get('status')}")
