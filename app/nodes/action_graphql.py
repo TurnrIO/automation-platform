@@ -154,6 +154,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         logger.warning("GraphQL: SSRF check failed — %s", exc)
         return {"__error": f"GraphQL: SSRF check failed: {exc}", "endpoint": endpoint}
 
+    logger.info("GraphQL: op=execute endpoint=%s", endpoint)
     # ── Execute ───────────────────────────────────────────────────────────────
     logger.info("GraphQL request → %s", endpoint)
     try:

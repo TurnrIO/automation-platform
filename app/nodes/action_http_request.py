@@ -151,7 +151,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     _check_url_ssrf(url)
 
     # ── Execute with redirect validation ─────────────────────────────────
-    logger.info("HTTP %s %s", method, url)
+    logger.info("HTTP Request: method=%s url=%s", method, url)
 
     client = httpx.Client(timeout=timeout, follow_redirects=False)
     current_url = url

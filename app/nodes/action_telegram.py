@@ -22,7 +22,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     if not token or not chat:
         raise ValueError("Telegram: missing bot_token or chat_id")
 
-    logger.info("Telegram: sending message to chat=%s len=%d", chat, len(text))
+    logger.info("Telegram: op=send")
     try:
         r = httpx.post(f"https://api.telegram.org/bot{token}/sendMessage",
                        json={'chat_id': chat, 'text': text}, timeout=10)
