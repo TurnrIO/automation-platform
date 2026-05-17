@@ -15,8 +15,12 @@ def _get_client(uri):
         raise
     try:
         return MongoClient(uri, serverSelectionTimeoutMS=10000)
-    except (OSError, RuntimeError, ValueError, ImportError) as exc:
+    except (OSError, RuntimeError, ImportError) as exc:
         logger.warning("MongoDB: connection failed — %s", exc)
+        raise
+    except ValueError:
+        # Re-raise directly — this is a user-facing URI format error, not an
+        # infrastructure failure the node should silently swallow.
         raise
 
 
