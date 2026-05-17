@@ -820,6 +820,12 @@ export function ConfigPanel({ node, onChange, onDelete, edges }) {
           </div>
         )}
 
+        {!runStatus && (node.data.type === "trigger.cron" || node.data.type === "trigger.webhook") && (
+          <div style={{ background: "#0f1117", border: "1px solid #2a2d3e", borderRadius: 6, padding: "8px 10px", fontSize: 10, color: "#64748b", marginTop: 6, lineHeight: 1.7 }}>
+            <span style={{ color: "#a78bfa" }}>💡</span> This flow has never run. Use the <strong>▶ Run</strong> button in the topbar to trigger it manually, or save and the schedule/webhook will activate automatically.
+          </div>
+        )}
+
         {/* Retry Policy (action nodes only) */}
         {!isNote && !isTrigger && (
           <>
