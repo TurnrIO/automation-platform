@@ -205,7 +205,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             rbody = r.text
 
         ok = 200 <= r.status_code < 300
-        logger.info("HTTP %s %s → %s", method, url, r.status_code)
+        logger.info("HTTP %s %s → %s", method, r.url, r.status_code)
 
         return {
             "status":  r.status_code,
