@@ -150,10 +150,21 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
         return {"__error": f"Email trigger: login failed for {username} — {exc}", "emails": [], "count": 0}
     except OSError as exc:
         logger.warning("[trigger.email] Connection error during login — %s:%s — %s", host, port, exc)
-        return {"__error": f"Email trigger: connection error — {exc}", "emails": [], "count": 0}
+        logger.warning("[trigger.email] Connection error during login — %s:%s — %s", host, port, exc)
         # readonly=True when we're not marking messages read (avoids write perm requirement)
-        conn.select(folder, readonly=not mark_read)
-
+        # conn.select error handling
+        try:
+            conn.select(folder, readonly=not mark_read)
+        except imaplib.IMAP4.error as exc:
+            logger.warning("[trigger.email] Select folder failed â %s â %s", folder, exc)
+            try:
+                conn.logout()
+            except (AttributeError, TypeError, OSError):
+                pass
+            return {"__error": f"Email trigger: could not select folder '{folder}' â {exc}", "emails": [], "count": 0}
+        except OSError as exc:
+            logger.warning("[trigger.email] OS error selecting folder â %s â %s", folder, exc)
+            return {"__error": f"Email trigger: OS error selecting folder '{folder}' â {exc}", "emails": [], "count": 0}
         typ, data = conn.search(None, search_criteria)
         if typ != "OK":
             raise RuntimeError(f"IMAP SEARCH failed: {typ} {data}")
@@ -186,14 +197,13 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
                 "attachment_names": attachments,
             }
 
-            # Optional Python filter — `email` is bound to the current message dict
             if filter_expr:
                 try:
                     keep = _safe_eval(filter_expr, {"email": entry, "re": _re})
                     if not keep:
                         continue
                 except (SyntaxError, ValueError, NameError, TypeError) as exc:
-                    logger.info("[trigger.email] Filter expression error: %s — skipping message", exc)
+                    logger.info("[trigger.email] Filter expression error: %s â skipping message", exc)
                     continue
 
             emails.append(entry)
@@ -204,11 +214,9 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
         logger.info("[trigger.email] Fetched %s message(s) from %s", len(emails), folder)
 
         result = {"emails": emails, "count": len(emails)}
-        # Expose first-email fields at the top level for simpler single-email flows
         if emails:
             result.update(emails[0])
         return result
-
     finally:
         try:
             conn.logout()
