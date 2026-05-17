@@ -233,7 +233,7 @@ def _sync_schedules(scheduler, known: dict):
                     replace_existing=True,
                 )
                 known[sid] = s
-            except (ValueError, TypeError, RuntimeError, OSError) as e:
+            except (RuntimeError, OSError) as e:
                 log.error("Failed to schedule %s: %s", s["name"], e)
 
 
