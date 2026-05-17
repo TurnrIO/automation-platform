@@ -152,7 +152,7 @@ def api_run_schedule_now(sid: int, request: Request):
                     (task_id, graph_id, _json.dumps(payload), s.get("workspace_id"))
                 )
                 conn.commit()
-        except (AttributeError, TypeError, RuntimeError, psycopg2.Error) as db_exc:
+        except psycopg2.Error as db_exc:
             log.warning("Could not pre-create run record for schedule %s: %s", sid, db_exc)
 
         try:
@@ -187,7 +187,7 @@ def api_run_schedule_now(sid: int, request: Request):
                     (task.id, graph_id, _json.dumps(payload), s.get("workspace_id"))
                 )
                 conn.commit()
-        except (AttributeError, TypeError, RuntimeError, psycopg2.Error) as exc:
+        except psycopg2.Error as exc:
             log.warning("Could not pre-create run record for schedule %s: %s", sid, exc)
 
     log.info("Manual trigger: schedule %s → graph %s (task %s)", sid, graph_id, task_id)
