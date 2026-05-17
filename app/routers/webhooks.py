@@ -165,10 +165,8 @@ async def webhook_trigger(token: str, request: Request):
             log.exception("Inline webhook graph run failed")
             update_run(task_id, "failed", result={"error": str(infra_err)})
             raise HTTPException(500, f"Graph run failed: {infra_err}")
-        except (ValueError, TypeError, KeyError) as flow_err:
-            log.exception("Inline webhook graph run failed")
-            update_run(task_id, "failed", result={"error": str(flow_err)})
-            raise HTTPException(500, f"Graph run failed: {flow_err}")
+        except (ValueError, TypeError, KeyError):
+            raise
 
     try:
         from app.core.db import get_conn
