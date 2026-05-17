@@ -141,7 +141,7 @@ def _make_job(sched, scheduler_ref=None):
                             " ON CONFLICT (task_id) DO NOTHING",
                             (task_id, sched["graph_id"], _json.dumps(payload), ws_id),
                         )
-                except (ConnectionError, OSError, RuntimeError, TypeError) as exc:
+                except (ConnectionError, OSError, RuntimeError) as exc:
                     log.warning("Could not pre-create run record for inline schedule %s: %s", sid, exc)
                 # Set running state before execution; catch infrastructure errors only
                 try:
@@ -174,7 +174,7 @@ def _make_job(sched, scheduler_ref=None):
                             " ON CONFLICT (task_id) DO NOTHING",
                             (task_id, sched["graph_id"], _json.dumps(payload), workspace_id),
                         )
-                except (ConnectionError, OSError, RuntimeError, TypeError) as exc:
+                except (ConnectionError, OSError, RuntimeError) as exc:
                     log.warning("Could not pre-create run record for schedule %s: %s", sid, exc)
         elif sched.get("workflow", "").startswith("script:"):
             script_name = sched["workflow"][len("script:"):]
