@@ -7,6 +7,7 @@ Operations:
 Output (parse):    { rows: [...], count: N, headers: [...] }
 Output (generate): { csv: "...", count: N }
 """
+
 import csv
 import io
 import logging
@@ -21,6 +22,7 @@ LABEL = "CSV"
 
 def run(config, inp, context, logger, creds=None, **kwargs):
     operation = config.get("operation", "parse")
+    logger.info("action.csv: op=%s", operation)
     delimiter = _render(config.get("delimiter", ","), context, creds) or ","
     delimiter = delimiter[0]  # ensure single char
 
@@ -53,6 +55,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                 # Template rendered to a string — evaluate it
                 try:
                     import json as _json
+
                     items = _json.loads(items)
                 except JSONDecodeError:
                     items = inp
@@ -68,8 +71,9 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         buf = io.StringIO()
         if isinstance(items[0], dict):
             headers = list(items[0].keys())
-            writer = csv.DictWriter(buf, fieldnames=headers, delimiter=delimiter,
-                                    extrasaction="ignore", lineterminator="\n")
+            writer = csv.DictWriter(
+                buf, fieldnames=headers, delimiter=delimiter, extrasaction="ignore", lineterminator="\n"
+            )
             writer.writeheader()
             writer.writerows(items)
         else:
