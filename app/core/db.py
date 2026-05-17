@@ -196,13 +196,14 @@ def _init_db_legacy():
             )
         """)
         # idempotent column additions for upgrades from any prior version
-        for col, defn in [
-            ("result",          "JSONB DEFAULT '{}'"),
-            ("traces",          "JSONB DEFAULT '[]'"),
-            ("initial_payload", "JSONB DEFAULT '{}'"),
-            ("created_at",      "TIMESTAMPTZ DEFAULT NOW()"),
-            ("updated_at",      "TIMESTAMPTZ DEFAULT NOW()"),
-        ]:
+        _COLUMNS = {
+            "result":          "JSONB DEFAULT '{}'",
+            "traces":          "JSONB DEFAULT '[]'",
+            "initial_payload": "JSONB DEFAULT '{}'",
+            "created_at":      "TIMESTAMPTZ DEFAULT NOW()",
+            "updated_at":      "TIMESTAMPTZ DEFAULT NOW()",
+        }
+        for col, defn in _COLUMNS.items():
             cur.execute(f"ALTER TABLE runs ADD COLUMN IF NOT EXISTS {col} {defn}")
 
         cur.execute("""
