@@ -33,8 +33,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     except OSError as exc:
         logger.warning("Telegram: connection error — %s", exc)
         return {"__error": f"Telegram connection error: {exc}", "sent": False, "chat_id": chat}
-    except (JSONDecodeError, KeyError, ValueError, TypeError) as exc:
-        logger.warning("Telegram: unexpected error — %s", exc)
-        return {"__error": f"Telegram error: {exc}", "sent": False, "chat_id": chat}
+    except (JSONDecodeError, KeyError) as exc:
+        logger.warning("Telegram: unexpected response shape — %s", exc)
+        return {"__error": f"Telegram response error: {exc}", "sent": False, "chat_id": chat}
 
     return {'sent': True, 'chat_id': chat}
