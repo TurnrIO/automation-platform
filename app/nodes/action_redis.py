@@ -118,7 +118,10 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         raise ValueError("Redis: 'key' is required")
 
     logger.info("Redis: op=%s key=%s", operation, key)
-    r = _get_client(config, context, creds)
+    try:
+        r = _get_client(config, context, creds)
+    except ValueError as e:
+        return {"__error": f"Redis SSRF check failed: {e}"}
 
     try:
         if operation == "get":

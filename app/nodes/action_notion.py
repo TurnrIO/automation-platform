@@ -100,7 +100,10 @@ def run(config, inp, context, logger, creds=None, **kwargs):
 
     def notion(method, url, **kw):
         # SSRF: validate resolved URL before making request
-        _check_url_ssrf(url)
+        try:
+            _check_url_ssrf(url)
+        except ValueError as exc:
+            return {"__error": f"Notion SSRF check failed: {exc}"}
         try:
             r = httpx.request(method, url, headers=headers, timeout=30, **kw)
             r.raise_for_status()
@@ -111,7 +114,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         except OSError as exc:
             logger.warning("Notion: connection error — %s", exc)
             return {"__error": f"Notion connection error: {exc}"}
-        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+        except (AttributeError, KeyError, TypeError) as exc:
             logger.warning("Notion: unexpected error — %s", exc)
             return {"__error": f"Notion request failed: {exc}"}
 
