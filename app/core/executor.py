@@ -502,10 +502,6 @@ def run_graph(graph_data: dict, initial_payload: dict = None, logger=None, _dept
         _span.set_status(_SC.ERROR, str(exc))
         log.error("Graph failed: %s (%s)", type(exc).__name__, exc)
         raise
-    except (AttributeError, KeyError, TypeError, ValueError) as exc:
-        _span.set_status(_SC.ERROR, str(exc))
-        log.error("Graph failed: %s (%s)", type(exc).__name__, exc)
-        raise
     except Exception as exc:
         _span.set_status(_SC.ERROR, str(exc))
         log.error("Graph failed: %s (%s)", type(exc).__name__, exc)
