@@ -86,13 +86,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
 
     op = _render(config.get("operation", "get_issue"), context, creds)
 
-    # ── SSRF check on fixed endpoint hostname ─────────────────────────────────
-    try:
-        _check_ssrf("api.linear.app")
-    except ValueError as e:
-        logger.warning("Linear: SSRF check failed — %s", e)
-        return {"__error": str(e)}
-
     # ── get issue ─────────────────────────────────────────────────────────────
     if op == "get_issue":
         issue_id = _render(config.get("issue_id", ""), context, creds)
