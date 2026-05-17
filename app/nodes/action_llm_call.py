@@ -122,9 +122,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     except (httpx.HTTPError, OSError) as exc:
         logger.warning("LLM Call: HTTP error calling %s — %s", api_base, exc)
         return {"__error": f"LLM call failed: HTTP error — {exc}", "model": model}
-    except (KeyError, IndexError, TypeError, ValueError) as exc:
-        logger.warning("LLM Call: unexpected error calling %s — %s", api_base, exc)
-        return {"__error": f"LLM call failed: {exc}", "model": model}
 
     data = resp.json()
     try:
