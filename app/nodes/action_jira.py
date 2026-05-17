@@ -351,6 +351,7 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
     try:
         _check_url_ssrf(base_url)
     except ValueError as e:
+        logger.warning("Jira: SSRF check failed — %s", e)
         return {"__error": str(e), "base_url": base_url}
 
     def r(key, default=""):
