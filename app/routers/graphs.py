@@ -336,7 +336,7 @@ async def api_graph_run(graph_id: int, request: Request):
             )
             update_run(task_id, "succeeded", result=result,
                        traces=result.get('traces', []))
-        except (OSError, psycopg2.Error, AttributeError) as inline_err:
+        except (OSError, psycopg2.Error) as inline_err:
             log.exception("Inline graph run failed")
             update_run(task_id, "failed", result={"error": str(inline_err)})
             raise HTTPException(500, f"Graph run failed: {inline_err}")
