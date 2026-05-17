@@ -7,6 +7,7 @@ import os
 import logging
 import psycopg2
 from pathlib import Path
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -109,8 +110,38 @@ def _serve_page(filename: str):
 
 from app._version import __version__
 
-app = FastAPI(title="HiveRunr", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
 
+def _startup():
+    """Synchronous startup logic — runs inside the lifespan manager."""
+    try:
+        _validate_config()
+    except RuntimeError as exc:
+        log.error("startup: FATAL — %s", exc)
+        import sys; sys.exit(1)
+    init_db()
+    seed_example_graphs()
+    for name in WORKFLOWS:
+        try:
+            upsert_workflow(name)
+        except (AttributeError, RuntimeError, OSError) as exc:
+            log.warning("startup: could not register workflow %r — %s", name, exc)
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Lifespan context manager — replaces @on_event startup/shutdown."""
+    _startup()
+    yield
+
+
+app = FastAPI(
+    title="HiveRunr",
+    version=__version__,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+    lifespan=_lifespan,
+)
 # ── Global exception handler ──────────────────────────────────────────────────
 # Catches any unhandled exception that reaches the top of the stack, logs the
 # full traceback, then returns a structured JSON 500 response.
@@ -268,21 +299,18 @@ def _validate_config() -> None:
         )
 
 
-# ── Startup ───────────────────────────────────────────────────────────────────
-@app.on_event("startup")
+# ── Startup (deprecated) ──────────────────────────────────────────────────────
+# Replaced by _lifespan below. Kept as a no-op reference.
 def startup():
-    try:
-        _validate_config()
-    except RuntimeError as exc:
-        log.error("startup: FATAL — %s", exc)
-        import sys; sys.exit(1)
-    init_db()
-    seed_example_graphs()
-    for name in WORKFLOWS:
-        try:
-            upsert_workflow(name)
-        except (AttributeError, RuntimeError, OSError) as exc:
-            log.warning("startup: could not register workflow %r — %s", name, exc)
+    pass
+
+
+
+
+
+
+
+
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -535,3 +563,4 @@ async def api_run_workflow(name: str, request: Request):
         )
     enqueue_script.apply_async(args=[name, payload], task_id=task_id)
     return {"queued": True, "task_id": task_id, "workflow": name}
+
