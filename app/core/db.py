@@ -544,21 +544,44 @@ def get_schedule(sid):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def create_schedule(name, workflow=None, graph_id=None, cron=None, payload=None, timezone="UTC", run_at=None, workspace_id: int | None = None):
+def create_schedule(
+    name,
+    workflow=None,
+    graph_id=None,
+    cron=None,
+    payload=None,
+    timezone="UTC",
+    run_at=None,
+    workspace_id: int | None = None,
+):
     with get_conn() as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(
-            "INSERT INTO schedules(name,workflow,graph_id,cron,payload,timezone,run_at,workspace_id) VALUES(%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-            (name, workflow, graph_id, cron, json.dumps(payload or {}), timezone, run_at, workspace_id)
+            "INSERT INTO schedules("
+            "(name,workflow,graph_id,cron,payload,timezone,run_at,workspace_id) "
+            "VALUES(%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+            (name, workflow, graph_id, cron, json.dumps(payload or {}), timezone, run_at, workspace_id),
         )
         return dict(cur.fetchone())
 
-def update_schedule(sid, name, workflow, graph_id, cron, payload, timezone, run_at=None, workspace_id: int | None = None):
+def update_schedule(
+    sid,
+    name,
+    workflow,
+    graph_id,
+    cron,
+    payload,
+    timezone,
+    run_at=None,
+    workspace_id: int | None = None,
+):
     with get_conn() as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(
-            "UPDATE schedules SET name=%s,workspace=%s,graph_id=%s,cron=%s,payload=%s,timezone=%s,run_at=%s,workspace_id=%s WHERE id=%s RETURNING *",
-            (name, workflow, graph_id, cron, json.dumps(payload or {}), timezone, run_at, workspace_id, sid)
+            "UPDATE schedules SET "
+            "name=%s,workspace=%s,graph_id=%s,cron=%s,payload=%s,timezone=%s,run_at=%s,workspace_id=%s "
+            "WHERE id=%s RETURNING *",
+            (name, workflow, graph_id, cron, json.dumps(payload or {}), timezone, run_at, workspace_id, sid),
         )
         row = cur.fetchone()
         return dict(row) if row else None
@@ -628,8 +651,9 @@ def create_graph(name, description, graph_json, workspace_id: int | None = None,
             if not cur.fetchone():
                 break
         cur.execute(
-            "INSERT INTO graph_workflows(name,description,graph_json,slug,workspace_id,tags) VALUES(%s,%s,%s,%s,%s,%s) RETURNING *",
-            (name, description, graph_json, slug, workspace_id, tags or [])
+            "INSERT INTO graph_workflows("
+            "VALUES(%s,%s,%s,%s,%s,%s) RETURNING *",
+            (name, description, graph_json, slug, workspace_id, tags or []),
         )
         return dict(cur.fetchone())
 
@@ -664,23 +688,53 @@ def get_graph_by_token(token):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def update_graph(graph_id, name=None, description=None, graph_json=None, enabled=None, tags=None, priority=None, pinned=None):
+def update_graph(
+    graph_id,
+    name=None,
+    description=None,
+    graph_json=None,
+    enabled=None,
+    tags=None,
+    priority=None,
+    pinned=None,
+):
     with get_conn() as conn:
         cur = conn.cursor()
         if name is not None:
-            cur.execute("UPDATE graph_workflows SET name=%s, updated_at=NOW() WHERE id=%s", (name, graph_id))
+            cur.execute(
+                "UPDATE graph_workflows SET name=%s, updated_at=NOW() WHERE id=%s",
+                (name, graph_id),
+            )
         if description is not None:
-            cur.execute("UPDATE graph_workflows SET description=%s, updated_at=NOW() WHERE id=%s", (description, graph_id))
+            cur.execute(
+                "UPDATE graph_workflows SET description=%s, updated_at=NOW() WHERE id=%s",
+                (description, graph_id),
+            )
         if graph_json is not None:
-            cur.execute("UPDATE graph_workflows SET graph_json=%s, updated_at=NOW() WHERE id=%s", (graph_json, graph_id))
+            cur.execute(
+                "UPDATE graph_workflows SET graph_json=%s, updated_at=NOW() WHERE id=%s",
+                (graph_json, graph_id),
+            )
         if enabled is not None:
-            cur.execute("UPDATE graph_workflows SET enabled=%s, updated_at=NOW() WHERE id=%s", (enabled, graph_id))
+            cur.execute(
+                "UPDATE graph_workflows SET enabled=%s, updated_at=NOW() WHERE id=%s",
+                (enabled, graph_id),
+            )
         if tags is not None:
-            cur.execute("UPDATE graph_workflows SET tags=%s, updated_at=NOW() WHERE id=%s", (tags, graph_id))
+            cur.execute(
+                "UPDATE graph_workflows SET tags=%s, updated_at=NOW() WHERE id=%s",
+                (tags, graph_id),
+            )
         if priority is not None:
-            cur.execute("UPDATE graph_workflows SET priority=%s, updated_at=NOW() WHERE id=%s", (int(priority), graph_id))
+            cur.execute(
+                "UPDATE graph_workflows SET priority=%s, updated_at=NOW() WHERE id=%s",
+                (int(priority), graph_id),
+            )
         if pinned is not None:
-            cur.execute("UPDATE graph_workflows SET pinned=%s, updated_at=NOW() WHERE id=%s", (bool(pinned), graph_id))
+            cur.execute(
+                "UPDATE graph_workflows SET pinned=%s, updated_at=NOW() WHERE id=%s",
+                (bool(pinned), graph_id),
+            )
 
 def duplicate_graph(graph_id: int) -> dict:
     """Clone a graph, appending ' (copy)' to the name and generating a fresh slug."""
