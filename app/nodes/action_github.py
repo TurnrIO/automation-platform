@@ -12,11 +12,15 @@ logger = logging.getLogger(__name__)
 
 _BLOCKED_NETWORKS = [
     ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
-    ipaddress.ip_network("169.254.0.0/16"),
     ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("224.0.0.0/4"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("ff00::/8"),
 ]
 
 
