@@ -261,6 +261,8 @@ _OPERATIONS = {
 def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) -> dict:
     creds = creds or {}
 
+    logger.info("[action.s3] op=%s", config.get("operation", "get"))
+
     # Resolve credential
     cred_name = _render(config.get("credential", ""), context, creds)
     raw_cred  = _resolve_cred_raw(cred_name, creds)
