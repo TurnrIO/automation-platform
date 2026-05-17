@@ -107,9 +107,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     except OSError as exc:
         logger.warning("Discord: connection error — %s", exc)
         return {"__error": f"Discord connection error: {exc}", "sent": False}
-    except (JSONDecodeError, KeyError, ValueError, TypeError, AttributeError) as exc:
-        logger.warning("Discord: unexpected error — %s", exc)
-        return {"__error": f"Discord error: {exc}", "sent": False}
 
-    logger.info("Discord: sent message (%s chars)", len(message))
+    logger.info("Discord: sent message", extra={"chars": len(message)})
     return {"sent": True, "message": message}

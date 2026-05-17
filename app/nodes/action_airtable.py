@@ -264,9 +264,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             except OSError as exc:
                 logger.warning("Airtable: connection error on get_record — %s", exc)
                 return {"__error": f"Airtable get_record failed: connection error — {exc}"}
-            except (httpx.HTTPError, OSError) as exc:
-                logger.warning("Airtable: unexpected error on get_record — %s", exc)
-                return {"__error": f"Airtable get_record failed: {exc}"}
             r = _clean_record(resp.json())
             return {"record": r, "id": r["id"], "fields": r["fields"]}
 
@@ -335,9 +332,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             except OSError as exc:
                 logger.warning("Airtable: connection error on upsert_record — %s", exc)
                 return {"__error": f"Airtable upsert_record failed: connection error — {exc}"}
-            except (httpx.HTTPError, OSError) as exc:
-                logger.warning("Airtable: unexpected error on upsert_record — %s", exc)
-                return {"__error": f"Airtable upsert_record failed: {exc}"}
             data    = resp.json()
             updated = data.get("updatedRecords", [])
             created = data.get("createdRecords", [])
@@ -365,9 +359,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             except OSError as exc:
                 logger.warning("Airtable: connection error on delete_record — %s", exc)
                 return {"__error": f"Airtable delete_record failed: connection error — {exc}"}
-            except (httpx.HTTPError, OSError) as exc:
-                logger.warning("Airtable: unexpected error on delete_record — %s", exc)
-                return {"__error": f"Airtable delete_record failed: {exc}"}
             data = resp.json()
             return {"id": data.get("id", record_id), "deleted": data.get("deleted", True)}
 

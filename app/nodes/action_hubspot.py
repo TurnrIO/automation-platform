@@ -99,12 +99,6 @@ def _req(method, path, token, body=None):
     except OSError as e:
         logger.warning("HubSpot: OS/socket error — %s", e)
         return {"__error": f"HubSpot socket error: {e}"}
-    except (KeyError, IndexError) as exc:
-        # KeyError/IndexError from malformed API response shapes are operational
-        # data errors — return __error so the node fails gracefully.
-        # TypeError, ValueError, AttributeError propagate (programmer errors).
-        logger.warning("HubSpot: response shape error — %s", exc)
-        return {"__error": f"HubSpot response shape error: {exc}"}
 
 
 def _flatten(obj):
