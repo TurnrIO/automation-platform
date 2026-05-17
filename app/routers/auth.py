@@ -435,7 +435,7 @@ def auth_forgot_password(body: ForgotPasswordBody):
                 username=owner["username"],
             )
         except (OSError, AttributeError, RuntimeError) as exc:
-            log.error("forgot-password: %s", exc)
+            log.error("forgot-password: [%s] %s", type(exc).__name__, exc)
 
     return {"ok": True, "message": "If that email matches the owner account, a reset link has been sent."}
 
