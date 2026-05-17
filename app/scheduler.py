@@ -125,7 +125,7 @@ def _make_job(sched, scheduler_ref=None):
             try:
                 task = enqueue_graph.apply_async(args=[sched["graph_id"], payload], priority=_priority)
                 task_id = task.id
-            except (ConnectionError, OSError, RuntimeError, TypeError) as exc:
+            except (OSError, RuntimeError) as exc:
                 log.warning("Celery unavailable (%s) — running scheduled graph inline", exc)
                 import uuid
                 task_id = str(uuid.uuid4())
