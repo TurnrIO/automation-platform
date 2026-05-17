@@ -93,10 +93,10 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     api_key  = _render(config.get('api_key', ''), context, creds) or os.environ.get('OPENAI_API_KEY', '')
     api_base = _render(config.get('api_base', ''), context, creds) or 'https://api.openai.com/v1'
 
+    logger.info("LLM Call: model=%s api_base=%s", model, api_base)
+
     if not api_key:
         raise ValueError("LLM Call: no api_key configured and OPENAI_API_KEY env not set")
-
-    logger.info("LLM Call: model=%s api_base=%s", model, api_base)
 
     # ── SSRF check on api_base ───────────────────────────────────────────
     try:
