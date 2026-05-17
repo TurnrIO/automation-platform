@@ -95,7 +95,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         r = _redis.from_url(redis_url, socket_connect_timeout=5)
         # Mark as pending so the approve endpoint can validate the token
         r.setex(f"approval:{token}:pending", timeout_s + 3600, "1")
-    except (OSError, RuntimeError, AttributeError) as exc:
+    except (OSError, RuntimeError) as exc:
         raise RuntimeError(f"Cannot connect to Redis for approval polling: {exc}") from exc
 
     while True:
