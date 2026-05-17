@@ -113,7 +113,11 @@ def run(config, inp, context, logger, creds=None, **kwargs):
 
     headers = {'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'}
     sheets_base = f'https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}'
-    _check_url_ssrf(sheets_base)
+    try:
+        _check_url_ssrf(sheets_base)
+    except ValueError as exc:
+        logger.warning("Google Sheets: SSRF check failed — %s", exc)
+        return {"__error": f"Google Sheets SSRF check failed: {exc}"}
 
     if action == 'read_range':
         logger.info("Google Sheets: read_range %s", sheet_range)
