@@ -230,7 +230,7 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
             "row":      rows[0] if rows else {},
             "affected": affected,
         }
-    except (psycopg2.Error, AttributeError, TypeError, ValueError, RuntimeError) as exc:
+    except psycopg2.Error as exc:
         try:
             db_conn.rollback()
         except (AttributeError, TypeError, RuntimeError):
