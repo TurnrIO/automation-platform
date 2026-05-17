@@ -109,7 +109,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                 outcome = json.load(f)
             has_result = outcome['has_result']
             result_val = outcome['result']
-        except OSError:
+        except (OSError, json.JSONDecodeError):
             # result_path not written or unreadable → script raised an exception before completion.
             raise RuntimeError(
                 "action.run_script: script raised an exception. "
