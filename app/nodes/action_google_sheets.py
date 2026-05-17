@@ -88,6 +88,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     action = config.get('action', 'read_range')
     sheet_range = _render(config.get('range', 'Sheet1!A1:Z100'), context, creds)
 
+    logger.info("Google Sheets: op=%s spreadsheet=%s", action, spreadsheet_id)
+
     if not spreadsheet_id:
         raise ValueError("Google Sheets: spreadsheet_id required")
 
