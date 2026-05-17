@@ -161,12 +161,10 @@ async def webhook_trigger(token: str, request: Request):
             )
             update_run(task_id, "succeeded", result=result,
                        traces=result.get('traces', []))
-        except (psycopg2.Error, OSError, RuntimeError) as infra_err:
+        except (OSError, RuntimeError) as infra_err:
             log.exception("Inline webhook graph run failed")
             update_run(task_id, "failed", result={"error": str(infra_err)})
             raise HTTPException(500, f"Graph run failed: {infra_err}")
-        except (ValueError, TypeError, KeyError):
-            raise
 
     try:
         from app.core.db import get_conn
