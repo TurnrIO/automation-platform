@@ -155,7 +155,11 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             raise ValueError("Twilio make_call: twiml_url or twiml is required")
         params = {"To": to_, "From": from_}
         if url_:
-            _check_url_ssrf(url_)
+            try:
+                _check_url_ssrf(url_)
+            except ValueError as e:
+                logger.warning("Twilio make_call: SSRF check failed — %s", e)
+                return {"__error": str(e), "url": url_}
             params["Url"] = url_
         else:
             params["Twiml"] = twiml_
