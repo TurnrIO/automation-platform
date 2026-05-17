@@ -414,8 +414,8 @@ def run_graph(graph_data: dict, initial_payload: dict = None, logger=None, _dept
     except (OSError, TimeoutError, ImportError) as e:
         log.warning(f"Could not load credentials: {e}")
         creds = {}
-    except (AttributeError, KeyError, RuntimeError, TypeError, ValueError):
-        # DB not available (no DB, network error, etc.) — degrade gracefully
+    except (ConnectionError, OSError, RuntimeError, TimeoutError) as exc:
+        log.warning(f"Could not load credentials (infra): {exc}")
         creds = {}
     except JSONDecodeError:
         # Corrupt data in DB credential store — skip credentials for this run
