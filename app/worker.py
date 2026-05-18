@@ -172,6 +172,7 @@ def enqueue_workflow(self, workflow_name: str, payload: dict):
 def enqueue_script(self, script_name: str, payload: dict):
     """Execute a standalone Python script from the workflows directory."""
     import time as _time
+    log.info(f"enqueue_script started: script={script_name} payload_keys={list(payload.keys())}")
     task_id = self.request.id
     try:
         from app.core.db import init_db
@@ -206,8 +207,14 @@ def enqueue_script(self, script_name: str, payload: dict):
         }]
         update_run(task_id, "succeeded", result={"output": output, "script": script_name},
                    traces=traces)
-    except (Exception, SystemExit) as e:
+    except Exception as e:
         sys.stdout, sys.stderr = old_stdout, old_stderr
+        # SystemExit(BaseException) is intentionally allowed to propagate —
+        # sys.exit(0) means "script completed successfully" and must NOT be
+        # treated as a failure. Celery handles it via its normal task lifecycle.
+        if isinstance(e, SystemExit):
+            log.info(f"Script {script_name} exited with code={e.code or 0}")
+            raise
         log.exception(f"Script {script_name} failed")
         _notify_failure(script_name, str(e), task_id)
         output = buf.getvalue()
