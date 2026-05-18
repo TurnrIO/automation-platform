@@ -7,6 +7,7 @@ Credential JSON fields:
          OR set host/port/password/db individually.
   host, port, password, db — individual fields (url takes precedence).
 """
+import ipaddress
 import logging
 
 logger = logging.getLogger(__name__)
@@ -19,16 +20,19 @@ NODE_TYPE = "action.redis"
 LABEL = "Redis"
 
 # ── SSRF protection ────────────────────────────────────────────────────────────
-# Blocked IP ranges (same pattern as action_airtable / action_graphql)
-_BLOCKED_IP_PREFIXES = (
-    "127.",   # loopback
-    "10.",    # RFC1918
-    "172.16", "172.17", "172.18", "172.19", "172.20", "172.21",
-    "172.22", "172.23", "172.24", "172.25", "172.26", "172.27",
-    "172.28", "172.29", "172.30", "172.31",  # RFC1918 (partial)
-    "192.168",  # RFC1918
-    "169.254",  # AWS IMDS / link-local
-)
+_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("224.0.0.0/4"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("ff00::/8"),
+]
+_IMDS_IP = ipaddress.ip_address("169.254.169.254")
 
 
 def _check_ssrf(host: str) -> None:
@@ -38,10 +42,15 @@ def _check_ssrf(host: str) -> None:
     try:
         infos = socket.getaddrinfo(host, 0, socket.SOCK_STREAM, socket.IPPROTO_TCP)
         for (family, socktype, proto, _, sockaddr) in infos:
-            ip = sockaddr[0]
-            if any(ip.startswith(prefix) for prefix in _BLOCKED_IP_PREFIXES):
+            ip = ipaddress.ip_address(sockaddr[0])
+            for net in _BLOCKED_NETWORKS:
+                if ip in net:
+                    raise ValueError(
+                        f"Redis: host '{host}' resolved to blocked IP {ip} — SSRF risk"
+                    )
+            if ip == _IMDS_IP:
                 raise ValueError(
-                    f"Redis: host '{host}' resolved to blocked IP {ip} — SSRF risk"
+                    f"Redis: host '{host}' resolved to IMDS IP {ip} — SSRF risk"
                 )
     except socket.gaierror:
         # DNS resolution failure — let Redis client fail naturally
