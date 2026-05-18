@@ -177,6 +177,8 @@ The visual canvas editor lets you build flows by connecting nodes on a graph. Ea
 | `action.slack` | Post to Slack via incoming webhook |
 | `action.discord` | Post to Discord via incoming webhook |
 | `action.telegram` | Send a Telegram bot message |
+| `action.linear` | Linear.app — create/update/search issues via GraphQL |
+| `action.openai_assistant` | OpenAI Assistants API — threads, messages, runs |
 | `action.call_graph` | Invoke another flow as a sub-flow |
 | `action.ssh` | Run a command on a remote server over SSH |
 | `action.sftp` | Upload, download, or list files over SFTP/FTP |
@@ -395,6 +397,10 @@ docker compose up -d --scale scheduler=2
 - Use HTTPS (update the Caddyfile) before exposing HiveRunr to the internet.
 - API tokens are generated per-owner from Settings and passed via `x-api-token` header — never put tokens in URLs.
 - `action.run_script` executes arbitrary Python as the container user. Only grant admin/owner roles to users you trust.
+- **SSRF protection** — `action.http_request`, `action.mongodb`, `action.postgres` all resolve hostnames and block RFC1918/loopback/multicast IP ranges.
+- **Webhook HMAC verification** — `trigger.webhook` validates `X-Hub-Signature-256` HMAC-SHA256 when a secret is configured.
+- **Credential encryption** — all credentials stored in HiveRunr are encrypted at rest using Fernet (AES-128-CBC + HMAC-SHA256).
+- **Observability** — OpenTelemetry traces are emitted for graph runs, individual node execution, and Celery tasks when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
 
 ---
 
