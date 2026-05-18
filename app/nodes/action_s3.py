@@ -49,7 +49,7 @@ LABEL     = "S3 Storage"
 
 # ── boto3 client factory ──────────────────────────────────────────────────────
 
-def _make_client(cred: dict):
+def _make_client(cred: dict, timeout: int = 30):
     try:
         import boto3
         from botocore.config import Config as BotoConfig
@@ -69,7 +69,8 @@ def _make_client(cred: dict):
         "region_name":           region,
         "config": BotoConfig(
             retries={"max_attempts": 3, "mode": "standard"},
-            signature_version="s3v4",
+            connect_timeout=timeout,
+            read_timeout=timeout,
         ),
     }
     if endpoint_url:
@@ -294,5 +295,11 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
 
     logger.info("[action.s3] op=%s bucket=%s key=%s", operation, bucket, key or '(prefix)')
 
-    s3 = _make_client(cred)
+    # Per-operation timeout (default 30s)
+    try:
+        timeout = int(_render(str(config.get("timeout", "30")), context, creds))
+    except (ValueError, TypeError):
+        timeout = 30
+
+    s3 = _make_client(cred, timeout=timeout)
     return _OPERATIONS[operation](s3, bucket, key, config, context, creds)

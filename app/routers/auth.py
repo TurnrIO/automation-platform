@@ -4,6 +4,7 @@ import redis
 import secrets as _sec
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
+from app.routers._rate_limit import limiter
 from pydantic import BaseModel
 
 from app.deps import _check_admin, _require_writer, _require_owner, _resolve_workspace
@@ -163,6 +164,7 @@ class LoginBody(BaseModel):
 
 
 @router.post("/api/auth/login")
+@limiter.limit("10/minute")
 def auth_login(body: LoginBody, request: Request):
     from app.auth import verify_password, hash_token, generate_token, SESSION_COOKIE, SESSION_DAYS
     # Prefer X-Forwarded-For (set by Caddy/nginx) so we rate-limit the real client

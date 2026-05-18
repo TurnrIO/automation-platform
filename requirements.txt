@@ -1,4 +1,5 @@
 alembic>=1.13.0
+slowapi==0.1.9
 opentelemetry-api>=1.24.0
 # Optional: install the SDK + OTLP exporter to enable distributed tracing
 # (set OTEL_EXPORTER_OTLP_ENDPOINT in .env — zero-overhead when unset, only api needed)

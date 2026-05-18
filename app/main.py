@@ -170,6 +170,36 @@ async def _unhandled_exception_handler(_req: _Request, exc: Exception) -> _JSONR
 # ── Middleware ────────────────────────────────────────────────────────────────
 app.add_middleware(PrometheusMiddleware)
 
+# ── Rate limiting (slowapi + Redis) ───────────────────────────────────────────
+# Note: we import and configure this AFTER app creation so `app` is in scope.
+# The limiter is shared as app.state.limiter so route decorators can reference it.
+from app.routers._rate_limit import limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ── CORS ──────────────────────────────────────────────────────────────────────
+# Defence-in-depth: restrict cross-origin access. The React SPA and API are
+# same-origin in normal deployment, but explicit allowlist prevents bypass if
+# Caddy misconfiguration occurs.
+from fastapi.middleware.cors import CORSMiddleware
+_app_url = os.environ.get("APP_URL", "http://localhost")
+_parsed = __import__("urllib.parse").urlparse(_app_url)
+_allowed_origins_raw = os.environ.get("CORS_ALLOWED_ORIGINS", "").strip()
+if not _allowed_origins_raw:
+    _allowed_origins_raw = f"{_parsed.scheme}://{_parsed.netloc}"
+_origins = [o.strip() for o in _allowed_origins_raw.split(",") if o.strip()]
+if _origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "x-api-token", "X-Workspace-Id"],
+        expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Policy"],
+        max_age=86400,
+    )
+
 # ── Include routers ───────────────────────────────────────────────────────────
 app.include_router(auth_router)
 app.include_router(graphs_router)

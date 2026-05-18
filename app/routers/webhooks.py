@@ -13,6 +13,7 @@ GRAPH_IMPORT_MAX_BYTES = 10 * 1024 * 1024  # 10 MB — matches graphs.py limit
 log = logging.getLogger(__name__)
 
 from fastapi import APIRouter, HTTPException, Request
+from app.routers._rate_limit import limiter
 from fastapi.responses import JSONResponse
 
 from app.core.db import get_graph_by_token, get_ratelimit_policy
@@ -71,6 +72,7 @@ def _verify_hmac(secret: str, body: bytes, signature_header: str) -> bool:
 
 
 @router.post("/webhook/{token}")
+@limiter.limit("60/minute")
 async def webhook_trigger(token: str, request: Request):
     g = get_graph_by_token(token)
     if not g:
