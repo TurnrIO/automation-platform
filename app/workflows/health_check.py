@@ -11,6 +11,8 @@ import time
 
 logger = logging.getLogger(__name__)
 
+logger.info("[workflow.health_check] Starting health check run")
+
 # -- Configuration ----------------------------------------------------------
 TARGETS = [
     {"name": "Google",       "url": "https://www.google.com"},
