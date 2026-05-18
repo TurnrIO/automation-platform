@@ -434,7 +434,7 @@ def auth_forgot_password(body: ForgotPasswordBody):
                 reset_url=reset_url,
                 username=owner["username"],
             )
-        except (OSError, AttributeError, RuntimeError) as exc:
+        except (OSError, AttributeError, RuntimeError, redis.exceptions.RedisError) as exc:
             log.error("forgot-password: [%s] %s", type(exc).__name__, exc)
 
     return {"ok": True, "message": "If that email matches the owner account, a reset link has been sent."}
