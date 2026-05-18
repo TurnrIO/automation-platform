@@ -414,7 +414,8 @@ def run_graph(graph_data: dict, initial_payload: dict = None, logger=None, _dept
     except (OSError, TimeoutError, ImportError) as e:
         log.warning(f"Could not load credentials: {e}")
         creds = {}
-    except (ConnectionError, OSError, RuntimeError, TimeoutError) as exc:
+    except (ConnectionError, RuntimeError) as exc:
+        # RuntimeError from Redis/client init or other infra not covered above
         log.warning(f"Could not load credentials (infra): {exc}")
         creds = {}
     except JSONDecodeError:
