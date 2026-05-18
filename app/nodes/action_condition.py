@@ -13,9 +13,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     expr = _render(config.get('expression') or 'True', context, creds)
     try:
         result = _safe_eval(expr, {'input': inp, 'context': context})
-    except ValueError as exc:
-        logger.warning("Condition: unsafe/invalid expression=%s — %s", expr, exc)
-        return {'result': False, 'input': inp, '__error': str(exc)}
     except (SyntaxError, NameError, TypeError, ArithmeticError):
         logger.warning("Condition: invalid expression=%s", expr)
         return {'result': False, 'input': inp, '__error': 'invalid_expression'}
