@@ -12,6 +12,7 @@ LABEL = "Delay"
 
 def run(config, inp, context, logger, creds=None, **kwargs):
     """Sleep for specified seconds."""
+    logger.info("Delay: node invoked")
     try:
         secs = float(_render(config.get('seconds', '1'), context, creds) or 1)
     except (ValueError, TypeError):
