@@ -281,9 +281,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             except OSError as exc:
                 logger.warning("Airtable: connection error on create_record — %s", exc)
                 return {"__error": f"Airtable create_record failed: connection error — {exc}"}
-            except (httpx.HTTPError, OSError) as exc:
-                logger.warning("Airtable: unexpected error on create_record — %s", exc)
-                return {"__error": f"Airtable create_record failed: {exc}"}
             r = _clean_record(resp.json())
             return {"record": r, "id": r["id"], "fields": r["fields"], "created": True}
 
@@ -304,9 +301,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             except OSError as exc:
                 logger.warning("Airtable: connection error on update_record — %s", exc)
                 return {"__error": f"Airtable update_record failed: connection error — {exc}"}
-            except (httpx.HTTPError, OSError) as exc:
-                logger.warning("Airtable: unexpected error on update_record — %s", exc)
-                return {"__error": f"Airtable update_record failed: {exc}"}
             r = _clean_record(resp.json())
             return {"record": r, "id": r["id"], "fields": r["fields"], "updated": True}
 
