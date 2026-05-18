@@ -4,6 +4,7 @@ All API routes live in app/routers/. This file wires together the app,
 static files, page routes, and startup lifecycle only.
 """
 import os
+import urllib.parse
 import logging
 import psycopg2
 from pathlib import Path
@@ -184,7 +185,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # Caddy misconfiguration occurs.
 from fastapi.middleware.cors import CORSMiddleware
 _app_url = os.environ.get("APP_URL", "http://localhost")
-_parsed = __import__("urllib.parse").urlparse(_app_url)
+_parsed = urllib.parse.urlparse(_app_url)
 _allowed_origins_raw = os.environ.get("CORS_ALLOWED_ORIGINS", "").strip()
 if not _allowed_origins_raw:
     _allowed_origins_raw = f"{_parsed.scheme}://{_parsed.netloc}"

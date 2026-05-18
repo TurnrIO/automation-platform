@@ -12,9 +12,6 @@ Usage in routers:
         ...
 
     On RateLimitExceeded, slowapi automatically returns a 429 with JSON body.
-    Optionally register a custom handler in main.py:
-        from slowapi.errors import RateLimitExceeded
-        app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 """
 import os
 from fastapi import Request
@@ -33,15 +30,26 @@ def _client_key(request: Request) -> str:
 
 
 # ── Storage ───────────────────────────────────────────────────────────────────
-# Redis-backed storage so rate limits are shared across all worker processes.
-# Falls back to in-memory if Redis is unavailable.
+# Try Redis-backed storage (shared across all worker processes).
+# Fall back to in-memory storage if Redis is unavailable (dev / CI test mode).
+_redis_url = os.environ.get("REDIS_URL", "")
 _storage_uri = "memory://"
 
-_redis_url = os.environ.get("REDIS_URL", "")
 if _redis_url:
     try:
-        # Use Redis DB 1 for rate limiting (DB 0 is Celery's broker/result backend)
-        _storage_uri = _redis_url.rstrip("/") + "/1"
+        import redis
+        _parsed = _redis_url.rstrip("/")
+        _db = "1"
+        if "/0" in _parsed:
+            _db = "1"
+            _storage_uri = _parsed.replace("/0", "/1", 1)
+        elif _parsed.count("/") >= 3:
+            _storage_uri = _parsed + "/1"
+        else:
+            _storage_uri = _parsed + "/1"
+        # Verify Redis is reachable before committing to it
+        _r = redis.from_url(_storage_uri)
+        _r.ping()
     except Exception:
         _storage_uri = "memory://"
 
