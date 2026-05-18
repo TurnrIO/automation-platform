@@ -381,7 +381,7 @@ Pick the next item off the top. Cross it off and add a "Completed sprints" row w
 
 79. **Caddyfile security headers** — X-Frame-Options, Content-Security-Policy, Strict-Transport-Security, Referrer-Policy, Permissions-Policy added to Caddyfile. ~~✓ Done — IMP-BD committed.~~
 
-80. **API rate limiting** — FastAPI routes have no `slowapi` / rate-limit middleware. All endpoints are unprotected against burst/DoS. Add `slowapi` with configurable per-IP and per-token limits on critical routes.
+80. ~~**API rate limiting** — FastAPI routes have no `slowapi` / rate-limit middleware. All endpoints are unprotected against burst/DoS. Add `slowapi` with configurable per-IP and per-token limits on critical routes.~~ ✓ Done — IMP-BF: slowapi==0.1.9, Redis-backed Limiter, @limiter.limit("10/minute") on login, "60/minute" on webhooks
 
 81. **Scoped API tokens** — All tokens are unscoped (owner-level only). A compromised token grants full access. Implement token scopes: `runs:read`, `runs:write`, `graphs:read`, `graphs:write`, `credentials:read`, `credentials:write`, etc.
 
@@ -391,7 +391,7 @@ Pick the next item off the top. Cross it off and add a "Completed sprints" row w
 
 84. **pydantic.BaseSettings for env validation** — Env vars are read with `os.environ.get()` and fail silently if malformed. Use `pydantic.BaseSettings` (or `pydantic-settings`) to validate required vars and types at startup.
 
-85. **S3 botocore timeouts** — `action_s3.py` passes no explicit timeouts to boto3 client calls. Long-hanging S3 ops could block workers indefinitely. Add per-operation timeouts (e.g. 30s default).
+85. ~~**S3 botocore timeouts** — `action_s3.py` passes no explicit timeouts to boto3 client calls. Long-hanging S3 ops could block workers indefinitely. Add per-operation timeouts (e.g. 30s default).~~ ✓ Done — IMP-BF: connect_timeout + read_timeout in BotoConfig, timeout config field on run()
 
 ---
 
