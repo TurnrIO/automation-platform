@@ -70,6 +70,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     """Send a message to a Discord channel via an Incoming Webhook."""
     import httpx
 
+    logger.info("Discord: op=send")
     webhook_url = _render(config.get("webhook_url", ""), context, creds)
     message     = _render(config.get("message", ""),     context, creds)
     username    = _render(config.get("username", ""),    context, creds)
