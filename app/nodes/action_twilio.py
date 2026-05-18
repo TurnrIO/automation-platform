@@ -99,6 +99,7 @@ def _req(method, path, account_sid, auth_token, body=None):
         return {"__error": f"Twilio response error: {exc}"}
 
 def run(config, inp, context, logger, creds=None, **kwargs):
+    logger.info("Twilio: run() called")
     # ── resolve credentials ────────────────────────────────────────────────
     cred_name   = config.get("credential", "")
     account_sid = ""
