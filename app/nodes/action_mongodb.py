@@ -1,5 +1,6 @@
 """MongoDB node — uses pymongo (optional dep)."""
 import ipaddress
+import json
 import logging
 import socket
 from json import JSONDecodeError
