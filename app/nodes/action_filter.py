@@ -22,7 +22,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     try:
         kept = [item for item in items
                 if _safe_eval(expr, {**local_vars, 'item': item})]
-    except (ValueError, SyntaxError, TypeError, NameError, ZeroDivisionError) as e:
+    except ValueError as e:
         logger.warning("Filter expression evaluation failed: %s — returning all items", e)
         kept = items
 
