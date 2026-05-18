@@ -15,6 +15,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     mode=all   : collect all upstream node outputs into a list
     mode=dict  : merge all upstream dicts into one dict (last wins on collision)
     """
+    logger.info("Merge: starting")
     mode = config.get('mode', 'dict')
     upstream_ids = kwargs.get('upstream_ids', [])
 
