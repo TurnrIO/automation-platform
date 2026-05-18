@@ -164,9 +164,12 @@ def api_graph_by_slug(slug: str, request: Request):
 @router.get("/api/graphs/{graph_id}")
 def api_graph_get(graph_id: int, request: Request):
     user = _check_admin(request)
+    workspace_id = _resolve_workspace(request, user)
     g = get_graph(graph_id)
     if not g:
         raise HTTPException(404, "Graph not found")
+    if workspace_id is not None and g.get("workspace_id") != workspace_id:
+        raise HTTPException(403, "Access denied to this workspace's graph")
     if not _is_admin_or_owner(user) and user.get("id", 0) != 0:
         _check_flow_access(request, graph_id, "viewer")
     return _graph_with_data(g)
@@ -175,9 +178,12 @@ def api_graph_get(graph_id: int, request: Request):
 @router.put("/api/graphs/{graph_id}")
 def api_graph_update(graph_id: int, body: GraphUpdate, request: Request):
     user = _check_admin(request)
+    workspace_id = _resolve_workspace(request, user)
     g = get_graph(graph_id)
     if not g:
         raise HTTPException(404, "Graph not found")
+    if workspace_id is not None and g.get("workspace_id") != workspace_id:
+        raise HTTPException(403, "Access denied to this workspace's graph")
     if not _is_admin_or_owner(user) and user.get("id", 0) != 0:
         _check_flow_access(request, graph_id, "editor")
     update_graph(graph_id, name=body.name, description=body.description,
@@ -198,11 +204,14 @@ def api_graph_update(graph_id: int, body: GraphUpdate, request: Request):
 @router.delete("/api/graphs/{graph_id}")
 def api_graph_delete(graph_id: int, request: Request):
     user = _check_admin(request)
+    workspace_id = _resolve_workspace(request, user)
     if not _is_admin_or_owner(user):
         raise HTTPException(403, "Deleting flows requires admin or owner role")
     g = get_graph(graph_id)
     if not g:
         raise HTTPException(404, "Graph not found")
+    if workspace_id is not None and g.get("workspace_id") != workspace_id:
+        raise HTTPException(403, "Access denied to this workspace's graph")
     delete_graph(graph_id)
     log_audit(user["username"], "graph.delete", "graph", graph_id,
               {"name": g["name"]},
