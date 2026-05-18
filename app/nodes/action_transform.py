@@ -9,6 +9,7 @@ LABEL = "Transform"
 
 def run(config, inp, context, logger, creds=None, **kwargs):
     """Evaluate a Python expression and return result."""
+    logger.info("Transform: evaluating expression")
     expr = _render(config.get('expression') or 'input', context, creds)
     try:
         result = _safe_eval(expr, {'input': inp, 'context': context, 'json': __import__('json')})
