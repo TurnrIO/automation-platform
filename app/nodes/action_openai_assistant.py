@@ -53,6 +53,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
 
     op           = _render(config.get("operation", "run_thread"), context, creds)
     assistant_id = _render(config.get("assistant_id", ""), context, creds)
+    logger.info("OpenAI Assistant: op=%s", op)
 
     # ── create thread ─────────────────────────────────────────────────────────
     if op == "create_thread":
