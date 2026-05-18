@@ -116,6 +116,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     """Execute a Redis command."""
     import redis
 
+    logger.info("[action.redis] invoked")
+
     operation = _render(config.get("operation", "get"), context, creds).strip().lower()
     key       = _render(config.get("key", ""), context, creds).strip()
     value     = _render(config.get("value", ""), context, creds)
