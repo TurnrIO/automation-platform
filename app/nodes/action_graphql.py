@@ -98,7 +98,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     """Execute a GraphQL query or mutation."""
     import httpx
 
-    logger.info("GraphQL: executing query")
+    logger.info("GraphQL: node started")
+
     # ── Resolve credential ────────────────────────────────────────────────────
     endpoint = _render(config.get("endpoint", ""), context, creds).strip()
     token    = _render(config.get("token", ""),    context, creds).strip()
@@ -154,7 +155,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         logger.warning("GraphQL: SSRF check failed — %s", exc)
         return {"__error": f"GraphQL: SSRF check failed: {exc}", "endpoint": endpoint}
 
-    logger.info("GraphQL: executing query")
+    logger.info("GraphQL: executing query", extra={"endpoint": endpoint})
     try:
         resp = httpx.post(endpoint, json=payload, headers=headers, timeout=timeout)
         resp.raise_for_status()
