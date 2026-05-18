@@ -59,6 +59,8 @@ def _safe_eval(expr: str, local_vars: dict) -> bool:
         'memoryview', 'classmethod', 'staticmethod', 'property',
         'vars', 'globals', 'locals', 'dir', 'help', 'copyright',
         'exit', 'quit', 'breakpoint', 'reload', '__import__',
+        # IMP-F16: also block dynamic attribute access / reflection
+        'getattr', 'setattr', 'delattr', 'hasattr',
     }
 
     def _check(node, allowed: bool = False):
@@ -92,9 +94,9 @@ def _safe_eval(expr: str, local_vars: dict) -> bool:
                     # For any other method call, check the attribute name isn't dangerous
                     attr = node.func.attr
                     if attr in (
-                        '__class__', '__bases__', '__subclasses__',
-                        '__init__', '__globals__', '__code__',
-                        '__closure__', '__func__',
+                        '__class__', '__bases__', '__base__', '__mro__', '__subclasses__',
+                        '__init__', '__globals__', '__code__', '__closure__', '__func__',
+                        '__getattribute__', '__getattr__', '__setattr__', '__delattr__',
                     ):
                         raise ValueError(f"Forbidden attribute/method: {attr}")
             # Block dynamic function calls (e.g. (lambda: os.system)())
