@@ -22,6 +22,7 @@ LABEL = "Aggregate"
 
 
 def run(config, inp, context, logger, creds=None, **kwargs):
+    logger.info("Aggregate: starting")
     mode       = config.get("mode", "list")
     field      = config.get("field", "")          # optional: extract sub-field from each item
     separator  = config.get("separator", "\n")    # for concat mode
