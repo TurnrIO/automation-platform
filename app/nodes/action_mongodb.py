@@ -49,11 +49,8 @@ def _check_ssrf(host: str, port: int) -> None:
 
 
 def _get_client(uri):
-    try:
-        from pymongo import MongoClient
-        from pymongo.errors import PyMongoError, ConnectionFailure, ServerSelectionTimeoutError
-    except ImportError:
-        raise
+    from pymongo import MongoClient
+    from pymongo.errors import PyMongoError, ConnectionFailure, ServerSelectionTimeoutError
     # ── SSRF: resolve hostname before connecting ───────────────────────────
     _host = _uri_host(uri)
     if _host:
