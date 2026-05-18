@@ -50,8 +50,12 @@ if _redis_url:
         # Verify Redis is reachable before committing to it
         _r = redis.from_url(_storage_uri)
         _r.ping()
-    except Exception:
+    except Exception as _exc:
+        import logging
+        logging.getLogger(__name__).warning(f"Redis unavailable ({_exc}), falling back to in-memory storage")
         _storage_uri = "memory://"
+    except (KeyboardInterrupt, SystemExit):
+        raise
 
 limiter = Limiter(key_func=_client_key, default_limits=[], storage_uri=_storage_uri)
 
