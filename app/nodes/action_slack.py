@@ -68,6 +68,7 @@ def _check_url_ssrf(url: str) -> None:
 
 def run(config, inp, context, logger, creds=None, **kwargs):
     """Send message to Slack webhook."""
+    logger.info("Slack: op=send")
     webhook_url = _render(config.get('webhook_url', ''), context, creds)
     message = _render(config.get('message', ''), context, creds)
     channel = _render(config.get('channel', ''), context, creds)
