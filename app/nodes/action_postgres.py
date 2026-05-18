@@ -78,7 +78,7 @@ def _dsn_host(dsn: str) -> str | None:
         from urllib.parse import urlparse
         parsed = urlparse(dsn)
         return parsed.hostname or None
-    except Exception:
+    except (AttributeError, TypeError):
         return None
 
 NODE_TYPE = "action.postgres"
