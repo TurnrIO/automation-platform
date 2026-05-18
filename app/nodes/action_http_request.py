@@ -90,6 +90,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     """Execute HTTP request and return response."""
     import urllib.parse
 
+    logger.info("HTTP Request: starting — method=%s", config.get("method", "GET").upper())
+
     url     = _render(config.get("url", ""),    context, creds)
     method  = config.get("method", "GET").upper()
     headers = {}
