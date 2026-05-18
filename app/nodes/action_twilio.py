@@ -114,11 +114,12 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         account_sid = _render(config.get("account_sid", ""), context, creds)
     if not auth_token:
         auth_token  = _render(config.get("auth_token", ""), context, creds)
-    if not account_sid or not auth_token:
-        raise ValueError("Twilio: account_sid and auth_token are required")
-
     op = _render(config.get("operation", "send_sms"), context, creds)
     logger.info("Twilio: op=%s", op)
+
+    # ── credential validation ───────────────────────────────────────────────
+    if not account_sid or not auth_token:
+        raise ValueError("Twilio: account_sid and auth_token are required")
 
     # ── send SMS ───────────────────────────────────────────────────────────
     if op in ("send_sms", "send_whatsapp"):
