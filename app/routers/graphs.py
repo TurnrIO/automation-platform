@@ -603,7 +603,6 @@ def api_invite_to_flow(graph_id: int, body: InviteBody, request: Request):
     # leave a permanently-unredeemable token), or when email is not configured
     # (inviter must share the URL manually).
     create_invite_token(token_hash, email, graph_id, body.role, actor_id, expires_at)
-    token_recorded = True
 
     log_audit(user["username"], "flow.invite", "graph", graph_id,
               {"email": email, "role": body.role, "sent": sent},
