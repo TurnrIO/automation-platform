@@ -40,6 +40,7 @@ _MAX_HOURS     = 168  # 7 days hard cap
 
 
 def run(config, inp, context, logger, creds=None, **kwargs):
+    logger.info("[action.wait_for_approval] Starting approval gate")
     approver_email = _render(config.get("approver_email", ""), context, creds).strip()
     if not approver_email:
         raise ValueError("approver_email is required")
@@ -140,7 +141,7 @@ def _update_status(token: str, status: str) -> None:
                     (status, token),
                 )
     except psycopg2.Error as exc:
-        logger.warning("wait_for_approval: could not update status — %s", exc)
+        logger.warning("wait_for_approval: could not update status (token=%s, status=%s) — %s", token, status, exc)
 
 
 def _send_approval_email(
