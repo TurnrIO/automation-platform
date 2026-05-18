@@ -1,12 +1,51 @@
 """MongoDB node — uses pymongo (optional dep)."""
+import ipaddress
 import logging
-import json
+import socket
 from json import JSONDecodeError
-from app.nodes._utils import _render
+from app.nodes._utils import _render, _resolve_cred_raw
 
 logger = logging.getLogger(__name__)
 NODE_TYPE = "action.mongodb"
 LABEL     = "MongoDB"
+
+# ── SSRF protection ────────────────────────────────────────────────────────────
+
+_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("224.0.0.0/4"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("ff00::/8"),
+]
+_IMDS_IP = ipaddress.ip_address("169.254.169.254")
+
+
+def _is_internal_ip(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        if ip == _IMDS_IP:
+            return True
+        return any(ip in net for net in _BLOCKED_NETWORKS)
+    except ValueError:
+        return True
+
+
+def _check_ssrf(host: str, port: int) -> None:
+    """Block connections to internal/reserved IPs via DNS resolution."""
+    try:
+        infos = socket.getaddrinfo(host, port)
+        for (_, _, _, _, sockaddr) in infos:
+            if _is_internal_ip(sockaddr[0]):
+                raise ValueError(f"SSRF blocked: resolved to internal IP {sockaddr[0]}")
+    except socket.gaierror:
+        raise ValueError(f"MongoDB: could not resolve hostname: {host}")
+
 
 def _get_client(uri):
     try:
@@ -14,6 +53,10 @@ def _get_client(uri):
         from pymongo.errors import PyMongoError, ConnectionFailure, ServerSelectionTimeoutError
     except ImportError:
         raise
+    # ── SSRF: resolve hostname before connecting ───────────────────────────
+    _host = _uri_host(uri)
+    if _host:
+        _check_ssrf(_host, 27017)
     try:
         return MongoClient(uri, serverSelectionTimeoutMS=10000)
     except PyMongoError as exc:
@@ -144,6 +187,15 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     finally:
         if "client" in locals():
             client.close()
+
+def _uri_host(uri: str) -> str:
+    """Extract hostname from a MongoDB URI string."""
+    # Strip scheme
+    after = uri.split("://", 1)[-1] if "://" in uri else uri
+    # Host portion is before the first / or :
+    host_part = after.split("/", 1)[0].split(":", 1)[0]
+    return host_part
+
 
 def _bson_to_dict(doc):
     """Convert ObjectId + other BSON types to plain strings for JSON serialisation."""
