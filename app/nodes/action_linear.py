@@ -84,6 +84,7 @@ def _gql(api_key: str, query: str, variables: dict = None, logger=None):
 
 
 def run(config, inp, context, logger, creds=None, **kwargs):
+    logger.info("Linear action started")
     cred_name = config.get("credential", "")
     api_key   = ""
     if cred_name and creds:

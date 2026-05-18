@@ -36,6 +36,7 @@ def _req(method, path, api_key, body=None):
 
 
 def run(config, inp, context, logger, creds=None, **kwargs):
+    logger.info("OpenAI Assistant action started")
     cred_name = config.get("credential", "")
     api_key = ""
     if cred_name and creds:

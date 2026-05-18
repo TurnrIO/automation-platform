@@ -57,6 +57,7 @@ def _check_ssrf(host: str, port: int = 22) -> None:
 
 def run(config, inp, context, logger, creds=None, **kwargs):
     """Execute command over SSH."""
+    logger.info("SSH action started")
     import paramiko
 
     host = _render(config.get('host', ''), context, creds)
