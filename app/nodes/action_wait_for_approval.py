@@ -60,6 +60,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     reject_url  = f"{app_url}/api/approvals/{token}/reject"
 
     # ── Persist approval record ──────────────────────────────────────────────
+    logger.info("Wait for Approval: approver=%s", approver_email)
     try:
         from app.core.db import get_conn
         with get_conn() as conn:
