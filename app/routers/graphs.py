@@ -580,12 +580,9 @@ def api_invite_to_flow(graph_id: int, body: InviteBody, request: Request):
     if actor_id == 0:
         actor_id = None
 
-    create_invite_token(token_hash, email, graph_id, body.role, actor_id, expires_at)
-
     app_url    = os.environ.get("APP_URL", "http://localhost").rstrip("/")
     invite_url = f"{app_url}/invite/accept?token={raw_token}"
 
-    # Send email if configured; otherwise just return the link in the response.
     sent = False
     if _is_configured():
         try:
@@ -600,6 +597,13 @@ def api_invite_to_flow(graph_id: int, body: InviteBody, request: Request):
             sent = True
         except (OSError, RuntimeError, AttributeError) as exc:
             log.warning("Could not send invite email: %s", exc)
+            raise HTTPException(500, "Failed to send invite email. Please try again.")
+
+    # Create the token only after confirmed email send (so a failed send cannot
+    # leave a permanently-unredeemable token), or when email is not configured
+    # (inviter must share the URL manually).
+    create_invite_token(token_hash, email, graph_id, body.role, actor_id, expires_at)
+    token_recorded = True
 
     log_audit(user["username"], "flow.invite", "graph", graph_id,
               {"email": email, "role": body.role, "sent": sent},
