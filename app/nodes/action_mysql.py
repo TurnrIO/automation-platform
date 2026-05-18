@@ -113,6 +113,9 @@ def _normalize_params(raw: str, context: dict, creds: dict):
 def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) -> dict:
     creds = creds or {}
 
+    logger.info("[action.mysql] invoked")
+
+
     # Resolve credential
     cred_name = _render(config.get("credential", ""), context, creds)
     raw_cred  = _resolve_cred_raw(cred_name, creds)
