@@ -244,7 +244,7 @@ def _resolve_workspace(request: Request, user: dict) -> int | None:
                 return result
         except (ValueError, TypeError) as exc:
             log.warning("Could not resolve workspace from X-Workspace-Id header: %s", exc)
-        except Exception as exc:
+        except (OSError, RuntimeError) as exc:
             log.warning("Unexpected error resolving workspace from X-Workspace-Id header: %s", exc)
 
     # 2. Browser cookie
@@ -257,7 +257,7 @@ def _resolve_workspace(request: Request, user: dict) -> int | None:
                 return result
         except (ValueError, TypeError) as exc:
             log.warning("Could not resolve workspace from cookie: %s", exc)
-        except Exception as exc:
+        except (OSError, RuntimeError) as exc:
             log.warning("Unexpected error resolving workspace from cookie: %s", exc)
 
     # 3. User's first workspace
@@ -268,7 +268,7 @@ def _resolve_workspace(request: Request, user: dict) -> int | None:
                 return memberships[0]["id"]
         except (AttributeError, TypeError, KeyError, OSError) as exc:
             log.warning("Could not resolve workspace from user's workspaces: %s", exc)
-        except Exception as exc:
+        except (OSError, RuntimeError) as exc:
             log.warning("Unexpected error resolving workspace from user's workspaces: %s", exc)
 
 
@@ -279,7 +279,7 @@ def _resolve_workspace(request: Request, user: dict) -> int | None:
             return default["id"]
     except (AttributeError, TypeError, KeyError, OSError) as exc:
         log.warning("Could not resolve workspace from default workspace: %s", exc)
-    except Exception as exc:
+    except (OSError, RuntimeError) as exc:
         log.warning("Unexpected error resolving workspace from default workspace: %s", exc)
 
     return None
