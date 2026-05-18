@@ -97,7 +97,18 @@ def api_run_by_task(task_id: str, request: Request):
 
 @router.delete("/api/runs/{run_id}")
 def api_delete_run(run_id: int, request: Request):
-    user = _require_manage_scope(request)
+    user = _check_admin(request)
+    workspace_id = _resolve_workspace(request, user)
+    from app.core.db import get_conn
+    import psycopg2.extras
+    with get_conn() as conn:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT workspace_id FROM runs WHERE id=%s", (run_id,))
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, f"Run {run_id} not found")
+    if workspace_id is not None and row.get("workspace_id") != workspace_id:
+        raise HTTPException(403, "Run belongs to a different workspace")
     delete_run(run_id)
     log_audit(user["username"], "run.delete", "run", run_id, None,
               request.client.host if request.client else None)
@@ -277,7 +288,18 @@ class _NoteBody(BaseModel):
 @router.put("/api/runs/{run_id}/note")
 def api_set_run_note(run_id: int, body: _NoteBody, request: Request):
     """Add or update a freeform text note on a run. Pass null/empty to clear."""
-    _require_manage_scope(request)
+    user = _check_admin(request)
+    workspace_id = _resolve_workspace(request, user)
+    from app.core.db import get_conn
+    import psycopg2.extras
+    with get_conn() as conn:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT workspace_id FROM runs WHERE id=%s", (run_id,))
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, f"Run {run_id} not found")
+    if workspace_id is not None and row.get("workspace_id") != workspace_id:
+        raise HTTPException(403, "Run belongs to a different workspace")
     set_run_note(run_id, body.note)
     return {"ok": True, "run_id": run_id, "note": body.note or None}
 
