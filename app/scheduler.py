@@ -253,6 +253,7 @@ def _auto_trim_runs():
         from app.core.db import get_retention_policy, trim_runs_by_count, trim_runs_by_age
         policy = get_retention_policy()
         if not policy["enabled"]:
+            log.info("Auto-trim: retention policy disabled — skipping")
             return
         if policy["mode"] == "age":
             deleted = trim_runs_by_age(policy["days"])
