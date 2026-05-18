@@ -11,11 +11,12 @@ LABEL     = "MongoDB"
 def _get_client(uri):
     try:
         from pymongo import MongoClient
+        from pymongo.errors import PyMongoError, ConnectionFailure, ServerSelectionTimeoutError
     except ImportError:
         raise
     try:
         return MongoClient(uri, serverSelectionTimeoutMS=10000)
-    except (OSError, RuntimeError, ImportError) as exc:
+    except PyMongoError as exc:
         logger.warning("MongoDB: connection failed — %s", exc)
         raise
     except ValueError:
