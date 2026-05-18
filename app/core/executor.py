@@ -75,8 +75,8 @@ from app.telemetry import get_tracer as _get_tracer, otel_context as _otel_ctx, 
 # ── topological sort (Kahn's) ─────────────────────────────────────────────
 def _topo(nodes, edges):
     ids   = [n['id'] for n in nodes]
-    indeg = dict.fromkeys(ids, 0)
-    succ  = dict.fromkeys(ids, [])
+    indeg = {i: 0 for i in ids}
+    succ  = {i: [] for i in ids}
     for e in edges:
         s, t = e['source'], e['target']
         if s in succ and t in indeg:
@@ -126,7 +126,7 @@ def _compute_levels(nodes, succ) -> list:
     the shared context dict.
     """
     ids    = [n['id'] for n in nodes]
-    indeg  = dict.fromkeys(ids, 0)
+    indeg  = {i: 0 for i in ids}
     id_set = set(ids)
     for nid in ids:
         for (t, _) in succ.get(nid, []):
