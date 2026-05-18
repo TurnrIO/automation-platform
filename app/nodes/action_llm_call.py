@@ -87,13 +87,13 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     """Call OpenAI-compatible LLM API."""
     import httpx
 
+    logger.info("LLM Call: starting")
+
     model    = _render(config.get('model', 'gpt-4o-mini'), context, creds)
     prompt   = _render(config.get('prompt', ''), context, creds)
     system   = _render(config.get('system', 'You are a helpful assistant.'), context, creds)
     api_key  = _render(config.get('api_key', ''), context, creds) or os.environ.get('OPENAI_API_KEY', '')
     api_base = _render(config.get('api_base', ''), context, creds) or 'https://api.openai.com/v1'
-
-    logger.info("LLM Call: model=%s api_base=%s", model, api_base)
 
     if not api_key:
         raise ValueError("LLM Call: no api_key configured and OPENAI_API_KEY env not set")
