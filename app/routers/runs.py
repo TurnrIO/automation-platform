@@ -58,6 +58,8 @@ def _sync_stuck_runs():
                     update_run(row['task_id'], 'cancelled', result={'cancelled_by': 'celery_revoke'})
                 elif state == 'PENDING':
                     if age > 120:
+                        log.info("[_sync_stuck_runs] Task %s auto-killed after 120s in PENDING state (workflow=%s, age=%.0fs)",
+                                 row['task_id'], row.get('workflow'), age)
                         update_run(row['task_id'], 'failed',
                                    result={'error': 'Task was lost — worker may have been restarting. Please re-run.'})
                     elif row['workflow']:
