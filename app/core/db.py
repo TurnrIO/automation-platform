@@ -383,7 +383,7 @@ def list_runs(page: int = 1, page_size: int = 50,
             f"""SELECT r.*,
                     COALESCE(
                         g.name,
-                        INITCAP(REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                        INITCAP(REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(
                             r.workflow,
                             '_', ' '), '__', ' '), '/', ' '), '.py', '')),
                             REPLACE(REPLACE(
@@ -409,7 +409,7 @@ def get_run_by_task(task_id):
             """SELECT r.*,
                     COALESCE(
                         g.name,
-                        INITCAP(REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                        INITCAP(REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(
                             r.workflow,
                             '_', ' '), '__', ' '), '/', ' '), '.py', '')),
                             REPLACE(REPLACE(
@@ -969,7 +969,7 @@ def get_run_metrics(workspace_id: int | None = None):
         cur.execute(f"""
             SELECT r.id, r.status,
                    r.created_at::text AS created_at,
-                   COALESCE(g.name, INITCAP(REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(r.workflow, '_', ' '), '__', ' '), '/', ' '), '.py', ''), '([a-z])([A-Z])', '\1 \2', 'g'), '([a-z])([A-Z])', '\1 \2', 'g')), 'unknown') AS flow_name,
+                   COALESCE(g.name, INITCAP(REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(r.workflow, '_', ' '), '/', ' '), '.py', ''), '([a-z])([A-Z])', '\1 \2', 'g'), '([a-z])([A-Z])', '\1 \2', 'g')), 'unknown') AS flow_name,
                    GREATEST(ROUND(EXTRACT(EPOCH FROM (r.updated_at - r.created_at))*1000), 0)::int AS duration_ms
             FROM runs r
             LEFT JOIN graph_workflows g ON r.graph_id = g.id
@@ -1005,7 +1005,7 @@ def get_flow_analytics(days: int = 30, workspace_id: int | None = None) -> list:
         cur.execute("""
             SELECT
                 r.graph_id,
-                COALESCE(g.name, 'legacy: ' || INITCAP(REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(r.workflow, '_', ' '), '__', ' '), '/', ' '), '.py', ''), '([a-z])([A-Z])', '\1 \2', 'g'), '([a-z])([A-Z])', '\1 \2', 'g')), 'unknown') AS flow_name,
+                COALESCE(g.name, 'legacy: ' || INITCAP(REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(r.workflow, '_', ' '), '/', ' '), '.py', ''), '([a-z])([A-Z])', '\1 \2', 'g'), '([a-z])([A-Z])', '\1 \2', 'g')), 'unknown') AS flow_name,
                 COUNT(*)                                               AS total,
                 SUM(CASE WHEN r.status = 'succeeded' THEN 1 ELSE 0 END) AS succeeded,
                 SUM(CASE WHEN r.status = 'failed'    THEN 1 ELSE 0 END) AS failed,
