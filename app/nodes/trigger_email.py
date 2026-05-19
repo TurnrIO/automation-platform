@@ -150,73 +150,78 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
         return {"__error": f"Email trigger: login failed for {username} — {exc}", "emails": [], "count": 0}
     except OSError as exc:
         logger.warning("[trigger.email] Connection error during login — %s:%s — %s", host, port, exc)
-        logger.warning("[trigger.email] Connection error during login — %s:%s — %s", host, port, exc)
-        # readonly=True when we're not marking messages read (avoids write perm requirement)
-        # conn.select error handling
         try:
-            conn.select(folder, readonly=not mark_read)
-        except imaplib.IMAP4.error as exc:
-            logger.warning("[trigger.email] Select folder failed â %s â %s", folder, exc)
+            conn.logout()
+        except (AttributeError, TypeError, OSError):
+            pass
+        return {"__error": f"Email trigger: connection error during login — {exc}", "emails": [], "count": 0}
+
+    # — select folder + search + fetch (runs on success OR after OSError during login) —
+    try:
+        conn.select(folder, readonly=not mark_read)
+    except imaplib.IMAP4.error as exc:
+        logger.warning("[trigger.email] Select folder failed — %s — %s", folder, exc)
+        try:
+            conn.logout()
+        except (AttributeError, TypeError, OSError):
+            pass
+        return {"__error": f"Email trigger: could not select folder '{folder}' — {exc}", "emails": [], "count": 0}
+    except OSError as exc:
+        logger.warning("[trigger.email] OS error selecting folder — %s — %s", folder, exc)
+        return {"__error": f"Email trigger: OS error selecting folder '{folder}' — {exc}", "emails": [], "count": 0}
+
+    typ, data = conn.search(None, search_criteria)
+    if typ != "OK":
+        raise RuntimeError(f"IMAP SEARCH failed: {typ} {data}")
+
+    all_ids = data[0].split() if data and data[0] else []
+    # Take the most-recent N message IDs
+    ids = all_ids[-max_msg:]
+
+    emails = []
+    for uid in ids:
+        typ2, raw = conn.fetch(uid, "(RFC822)")
+        if typ2 != "OK" or not raw or raw[0] is None:
+            continue
+        raw_bytes = raw[0][1] if isinstance(raw[0], tuple) else raw[0]
+        if not isinstance(raw_bytes, bytes):
+            continue
+        msg = _email_module.message_from_bytes(raw_bytes)
+
+        plain, html = _get_body(msg)
+        attachments = _get_attachment_names(msg)
+
+        entry = {
+            "message_id":       msg.get("Message-ID", "").strip(),
+            "subject":          _decode_header(msg.get("Subject", "")),
+            "from":             _decode_header(msg.get("From", "")),
+            "to":               _decode_header(msg.get("To", "")),
+            "date":             msg.get("Date", ""),
+            "body":             plain,
+            "html_body":        html,
+            "attachment_names": attachments,
+        }
+
+        if filter_expr:
             try:
-                conn.logout()
-            except (AttributeError, TypeError, OSError):
-                pass
-            return {"__error": f"Email trigger: could not select folder '{folder}' â {exc}", "emails": [], "count": 0}
-        except OSError as exc:
-            logger.warning("[trigger.email] OS error selecting folder â %s â %s", folder, exc)
-            return {"__error": f"Email trigger: OS error selecting folder '{folder}' â {exc}", "emails": [], "count": 0}
-        typ, data = conn.search(None, search_criteria)
-        if typ != "OK":
-            raise RuntimeError(f"IMAP SEARCH failed: {typ} {data}")
-
-        all_ids = data[0].split() if data and data[0] else []
-        # Take the most-recent N message IDs
-        ids = all_ids[-max_msg:]
-
-        emails = []
-        for uid in ids:
-            typ2, raw = conn.fetch(uid, "(RFC822)")
-            if typ2 != "OK" or not raw or raw[0] is None:
-                continue
-            raw_bytes = raw[0][1] if isinstance(raw[0], tuple) else raw[0]
-            if not isinstance(raw_bytes, bytes):
-                continue
-            msg = _email_module.message_from_bytes(raw_bytes)
-
-            plain, html = _get_body(msg)
-            attachments = _get_attachment_names(msg)
-
-            entry = {
-                "message_id":       msg.get("Message-ID", "").strip(),
-                "subject":          _decode_header(msg.get("Subject", "")),
-                "from":             _decode_header(msg.get("From", "")),
-                "to":               _decode_header(msg.get("To", "")),
-                "date":             msg.get("Date", ""),
-                "body":             plain,
-                "html_body":        html,
-                "attachment_names": attachments,
-            }
-
-            if filter_expr:
-                try:
-                    keep = _safe_eval(filter_expr, {"email": entry, "re": _re})
-                    if not keep:
-                        continue
-                except (SyntaxError, ValueError, NameError, TypeError) as exc:
-                    logger.info("[trigger.email] Filter expression error: %s â skipping message", exc)
+                keep = _safe_eval(filter_expr, {"email": entry, "re": _re})
+                if not keep:
                     continue
+            except (SyntaxError, ValueError, NameError, TypeError) as exc:
+                logger.info("[trigger.email] Filter expression error: %s — skipping message", exc)
+                continue
 
-            emails.append(entry)
+        emails.append(entry)
 
-            if mark_read:
-                conn.store(uid, "+FLAGS", "\\Seen")
+        if mark_read:
+            conn.store(uid, "+FLAGS", "\Seen")
 
-        logger.info("[trigger.email] Fetched %s message(s) from %s", len(emails), folder)
+    logger.info("[trigger.email] Fetched %s message(s) from %s", len(emails), folder)
 
-        result = {"emails": emails, "count": len(emails)}
-        if emails:
-            result.update(emails[0])
-        return result
+    result = {"emails": emails, "count": len(emails)}
+    if emails:
+        result.update(emails[0])
+    return result
     finally:
         try:
             conn.logout()
