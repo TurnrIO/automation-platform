@@ -183,7 +183,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     import httpx
 
     logger.info("[action.airtable] Starting Airtable run")
-    logger.info("Airtable: node invoked")
 
     result = _resolve_creds(config, context, creds)
     if isinstance(result, dict) and "__error" in result:
