@@ -298,14 +298,14 @@ class TestSchedulerLock:
 
 class TestExecutorEdgeCases:
     def test_cyclic_dependency_handled_by_topo(self):
-        """Kahn's algorithm gracefully handles cycles — neither node gets sorted."""
+        """Kahn's algorithm raises ValueError on cycles (IMP-110)."""
         nodes = [{"id": "a"}, {"id": "b"}]
         edges = [
             {"source": "a", "target": "b"},
             {"source": "b", "target": "a"},
         ]
-        order, _ = _topo(nodes, edges)
-        assert len(order) < 2  # cycle means neither finishes with indegree=0
+        with pytest.raises(ValueError, match="cycle"):
+            _topo(nodes, edges)
 
     def test_empty_graph_returns_empty_traces(self):
         result = run_graph(_g([]))
