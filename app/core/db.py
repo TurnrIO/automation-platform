@@ -1003,7 +1003,7 @@ def get_flow_analytics(days: int = 30, workspace_id: int | None = None) -> list:
         cur.execute("""
             SELECT
                 r.graph_id,
-                COALESCE(g.name, 'legacy: ' || INITCAP(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(r.workflow, '_', ' '), '/', ' '), '.py', '')), '([a-z])([A-Z])', '\\1 \\2', 'g'))), 'unknown') AS flow_name,
+                COALESCE(g.name, 'legacy: ' || INITCAP(REGEXP_REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(r.workflow, '_', ' '), '/', ' '), '.py', '')), '([a-z])([A-Z])', '\\1 \\2', 'g'), '([a-z])([A-Z])', '\\1 \\2', 'g')), 'unknown') AS flow_name,
                 COUNT(*)                                               AS total,
                 SUM(CASE WHEN r.status = 'succeeded' THEN 1 ELSE 0 END) AS succeeded,
                 SUM(CASE WHEN r.status = 'failed'    THEN 1 ELSE 0 END) AS failed,
