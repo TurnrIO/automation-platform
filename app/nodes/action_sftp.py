@@ -257,6 +257,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             elif operation == 'upload':
                 data = content.encode('utf-8') if isinstance(content, str) else content
                 sftp.putfo(io.BytesIO(data), remote_path)
+                logger.info("SFTP: uploaded %s bytes to %s", len(data), remote_path)
                 return {'uploaded': True, 'remote_path': remote_path, 'size': len(data)}
 
             # ── download ──────────────────────────────────────────────
@@ -264,6 +265,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                 buf = io.BytesIO()
                 sftp.getfo(remote_path, buf)
                 text = buf.getvalue().decode('utf-8', errors='replace')
+                logger.info("SFTP: downloaded %s bytes from %s", len(text), remote_path)
                 return {'content': text, 'remote_path': remote_path, 'size': len(text)}
 
             # ── delete ────────────────────────────────────────────────
@@ -364,6 +366,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             elif operation == 'upload':
                 data = content.encode('utf-8') if isinstance(content, str) else content
                 ftp.storbinary(f'STOR {remote_path}', io.BytesIO(data))
+                logger.info("FTP: uploaded %s bytes to %s", len(data), remote_path)
                 return {'uploaded': True, 'remote_path': remote_path}
 
             # ── download ──────────────────────────────────────────────────
@@ -371,6 +374,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                 buf = io.BytesIO()
                 ftp.retrbinary(f'RETR {remote_path}', buf.write)
                 text = buf.getvalue().decode('utf-8', errors='replace')
+                logger.info("FTP: downloaded %s bytes from %s", len(text), remote_path)
                 return {'content': text, 'remote_path': remote_path, 'size': len(text)}
 
             # ── delete ────────────────────────────────────────────────────
