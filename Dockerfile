@@ -15,7 +15,7 @@ COPY frontend/ ./
 RUN npm run build -- --outDir ./dist --emptyOutDir
 
 # ── Stage 2: Python runtime ───────────────────────────────────────────────────
-FROM python:3.12-slim
+FROM python:3.11-slim
 
 # Create a non-root user so the process cannot write to the image filesystem
 # or escalate privileges even if a dependency is compromised.
