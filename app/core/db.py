@@ -385,9 +385,10 @@ def list_runs(page: int = 1, page_size: int = 50,
                         g.name,
                         INITCAP(REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(
                             r.workflow,
-                            '_', ' '), '__', ' '), '/', ' '), '.py', ''),
+                            '_', ' '), '__', ' '), '/', ' '), '.py', '')),
+                            REPLACE(REPLACE(
                             '([a-z])([A-Z])', '\1 \2', 'g'),
-                            '([a-z])([A-Z])', '\1 \2', 'g'))
+                            '([a-z])([A-Z])', '\1 \2', 'g')))
                     ) AS flow_name
                 {base_query}
                 ORDER BY r.id DESC
