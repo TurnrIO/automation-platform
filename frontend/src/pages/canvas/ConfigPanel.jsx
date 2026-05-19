@@ -850,9 +850,9 @@ export function ConfigPanel({ node, onChange, onDelete, edges }) {
           </div>
         )}
 
-        {!runStatus && (node.data.type === "trigger.cron" || node.data.type === "trigger.webhook") && (
+        {!runStatus && (node.data.type === "trigger.cron" || node.data.type === "trigger.webhook" || node.data.type === "trigger.rss" || node.data.type === "trigger.email" || node.data.type === "trigger.file_watch") && (
           <div style={{ background: "#0f1117", border: "1px solid #2a2d3e", borderRadius: 6, padding: "8px 10px", fontSize: 10, color: "#64748b", marginTop: 6, lineHeight: 1.7 }}>
-            <span style={{ color: "#a78bfa" }}>💡</span> This flow has never run. Use the <strong>▶ Run</strong> button in the topbar to trigger it manually, or save and the schedule/webhook will activate automatically.
+            <span style={{ color: "#a78bfa" }}>💡</span> This flow has never run. Use the <strong>▶ Run</strong> button in the topbar to test it manually, or save and the trigger will activate on schedule.
           </div>
         )}
 
