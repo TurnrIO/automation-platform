@@ -215,7 +215,7 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
             emails.append(entry)
 
             if mark_read:
-                conn.store(uid, "+FLAGS", "\Seen")
+                conn.store(uid, "+FLAGS", r"\Seen")
 
         logger.info("[trigger.email] Fetched %s message(s) from %s", len(emails), folder)
 
