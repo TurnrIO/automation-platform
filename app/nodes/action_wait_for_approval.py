@@ -76,6 +76,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                 )
     except psycopg2.Error as exc:
         logger.warning("wait_for_approval: could not persist record — %s", exc)
+        raise RuntimeError(f"wait_for_approval: could not persist approval record: {exc}") from exc
 
     # ── Send email ───────────────────────────────────────────────────────────
     _send_approval_email(approver_email, subject, message, approve_url, reject_url,
