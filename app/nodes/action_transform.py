@@ -17,18 +17,16 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         return {
             '__error': f"Unsafe or invalid expression: {exc}"
         }
-    except (SyntaxError, NameError, TypeError, ZeroDivisionError, KeyError) as e:
-        if isinstance(e, KeyError) and e.args and isinstance(e.args[0], slice):
-            s = e.args[0]
+    except (SyntaxError, NameError, TypeError, ZeroDivisionError, KeyError, AttributeError) as e:
+        e_args = getattr(e, 'args', ())
+        if isinstance(e, KeyError) and e_args and isinstance(e_args[0], slice):
+            s = e_args[0]
             notation = f"[:{s.stop}]" if s.start is None and s.step is None else repr(s)
             keys = list(inp.keys()) if isinstance(inp, dict) else None
             hint = f" Available keys: {keys}. Try input['key']{notation} instead." if keys else ""
             return {
                 '__error': f"Cannot slice a dict with {notation} — 'input' is a dict, not a list.{hint}"
             }
-        return {
-            '__error': f"Transform expression error: {type(e).__name__}: {e}"
-        }
+        raise RuntimeError(f"Transform expression error: {type(e).__name__}: {e}")
     logger.info("Transform: evaluated expression")
     return result
-
