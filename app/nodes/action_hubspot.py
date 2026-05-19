@@ -78,7 +78,7 @@ def _req(method, path, token, body=None):
     try:
         _check_url_ssrf(url)
     except ValueError as e:
-        return {"__error": f"HubSpot SSRF check failed: {e}"}
+        raise RuntimeError(f"HubSpot SSRF check failed: {e}")
     data = json.dumps(body).encode() if body is not None else None
     req  = urllib.request.Request(url, data=data, method=method)
     req.add_header("Authorization", f"Bearer {token}")
@@ -92,13 +92,13 @@ def _req(method, path, token, body=None):
         try:    detail = json.loads(body_txt).get("message", body_txt)
         except JSONDecodeError: detail = body_txt
         logger.warning("HubSpot: HTTP error — %s %s", e.code, detail)
-        return {"__error": f"HubSpot HTTP {e.code}: {detail}"}
+        raise RuntimeError(f"HubSpot HTTP {e.code}: {detail}")
     except urllib.error.URLError as e:
         logger.warning("HubSpot: URL error (connection/DNS) — %s", e.reason)
-        return {"__error": f"HubSpot connection error: {e.reason}"}
+        raise RuntimeError(f"HubSpot connection error: {e.reason}")
     except OSError as e:
         logger.warning("HubSpot: OS/socket error — %s", e)
-        return {"__error": f"HubSpot socket error: {e}"}
+        raise RuntimeError(f"HubSpot socket error: {e}")
 
 
 def _flatten(obj):
