@@ -387,7 +387,7 @@ def list_runs(page: int = 1, page_size: int = 50,
                             r.workflow,
                             '_', ' '), '__', ' '), '/', ' '), '.py', ''),
                             '([a-z])([A-Z])', '\\1 \\2', 'g')),
-                            '([a-z])([A-Z])', '\\1 \\2', 'g'))))
+                            '([a-z])([A-Z])', '\\1 \\2', 'g')))
                     ) AS flow_name
                 {base_query}
                 ORDER BY r.id DESC
@@ -967,7 +967,7 @@ def get_run_metrics(workspace_id: int | None = None):
         cur.execute(f"""
             SELECT r.id, r.status,
                    r.created_at::text AS created_at,
-                   COALESCE(g.name, INITCAP(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(r.workflow, '_', ' '), '/', ' '), '.py', ''), '\\1 \\2', 'g')))), 'unknown') AS flow_name,
+                   COALESCE(g.name, INITCAP(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(r.workflow, '_', ' '), '/', ' '), '.py', ''), '\\1 \\2', 'g'))), 'unknown') AS flow_name,
                    GREATEST(ROUND(EXTRACT(EPOCH FROM (r.updated_at - r.created_at))*1000), 0)::int AS duration_ms
             FROM runs r
             LEFT JOIN graph_workflows g ON r.graph_id = g.id
