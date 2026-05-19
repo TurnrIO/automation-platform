@@ -93,8 +93,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     if not spreadsheet_id:
         raise ValueError("Google Sheets: spreadsheet_id required")
 
-    logger.info("Google Sheets: action=%s spreadsheet=%s", action, spreadsheet_id)
-
     # Get access token via service account JWT
     try:
         creds_dict = json.loads(service_account_json)
