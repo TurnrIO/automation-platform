@@ -91,6 +91,8 @@ def _topo(nodes, edges):
             indeg[nb] -= 1
             if indeg[nb] == 0:
                 queue.append(nb)
+    if len(order) != len(ids):
+        raise ValueError("graph contains a cycle")
     return order, succ
 
 

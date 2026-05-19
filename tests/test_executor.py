@@ -63,6 +63,22 @@ class TestTopo:
         order, _ = _topo(nodes, edges)
         assert order == ["a"]
 
+    def test_cycle_detected(self):
+        nodes = [{"id": n} for n in ("a", "b", "c")]
+        edges = [
+            {"source": "a", "target": "b"},
+            {"source": "b", "target": "c"},
+            {"source": "c", "target": "a"},
+        ]
+        with pytest.raises(ValueError, match="cycle"):
+            _topo(nodes, edges)
+
+    def test_self_cycle_detected(self):
+        nodes = [{"id": "a"}]
+        edges = [{"source": "a", "target": "a"}]
+        with pytest.raises(ValueError, match="cycle"):
+            _topo(nodes, edges)
+
 
 # ── run_graph: basic behaviour ─────────────────────────────────────────────────
 
