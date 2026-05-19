@@ -88,8 +88,9 @@ def _get_client(config, context, creds):
         import urllib.parse
         parsed = urllib.parse.urlparse(url)
         host = parsed.hostname or ""
-        if host:
-            _check_ssrf(host)
+        if not host:
+            raise ValueError("Redis URL must include a hostname")
+        _check_ssrf(host)
         return _redis.from_url(url, socket_timeout=10, decode_responses=True)
 
     # Fallback: use inline config fields
