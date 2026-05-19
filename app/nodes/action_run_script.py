@@ -48,9 +48,15 @@ def _run_script_worker(script: str, inp, context_json: str, ns_keys: list, resul
         result_val = ns['result'] if has_result else None
         with open(result_path, 'w') as f:
             json.dump({'has_result': has_result, 'result': result_val}, f)
-    except (OSError, json.JSONDecodeError):
-        # Script errors → result file not written; parent sees non-zero exit and raises.
-        pass
+    except Exception:
+        # Write exception info so the parent gets a meaningful error, not a
+        # generic "script raised an exception" with no details.
+        import sys
+        exc_type = sys.exc_info()[0]
+        exc_val  = str(sys.exc_info()[1])
+        with open(result_path, 'w') as f:
+            json.dump({'error': exc_type.__name__ if exc_type else 'Exception',
+                       'message': exc_val}, f)
 
 
 def run(config, inp, context, logger, creds=None, **kwargs):
@@ -107,6 +113,11 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         try:
             with open(result_path) as f:
                 outcome = json.load(f)
+            err = outcome.get('error')
+            if err:
+                raise RuntimeError(
+                    f"action.run_script: script raised {err}: {outcome.get('message', '')}"
+                )
             has_result = outcome['has_result']
             result_val = outcome['result']
         except (OSError, json.JSONDecodeError):
