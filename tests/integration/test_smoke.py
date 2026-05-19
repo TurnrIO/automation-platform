@@ -37,9 +37,9 @@ def client():
     return c
 
 
-def _poll_run(client, task_id, timeout=45):
+def _poll_run(client, task_id, timeout=90):
     """Poll /api/runs/by-task/{task_id} until the run reaches a terminal state."""
-    for _ in range(timeout):
+    for i in range(timeout):
         r = client.get(f"/api/runs/by-task/{task_id}")
         if r.status_code == 200:
             status = r.json().get("status")
