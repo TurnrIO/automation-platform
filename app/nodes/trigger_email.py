@@ -156,7 +156,7 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
             pass
         return {"__error": f"Email trigger: connection error during login — {exc}", "emails": [], "count": 0}
 
-    # — select folder + search + fetch (runs on success OR after OSError during login) —
+    # — select folder + search + fetch —
     try:
         conn.select(folder, readonly=not mark_read)
     except imaplib.IMAP4.error as exc:
@@ -170,60 +170,68 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
         logger.warning("[trigger.email] OS error selecting folder — %s — %s", folder, exc)
         return {"__error": f"Email trigger: OS error selecting folder '{folder}' — {exc}", "emails": [], "count": 0}
 
-    typ, data = conn.search(None, search_criteria)
-    if typ != "OK":
-        raise RuntimeError(f"IMAP SEARCH failed: {typ} {data}")
+    try:
+        typ, data = conn.search(None, search_criteria)
+        if typ != "OK":
+            raise RuntimeError(f"IMAP SEARCH failed: {typ} {data}")
 
-    all_ids = data[0].split() if data and data[0] else []
-    # Take the most-recent N message IDs
-    ids = all_ids[-max_msg:]
+        all_ids = data[0].split() if data and data[0] else []
+        # Take the most-recent N message IDs
+        ids = all_ids[-max_msg:]
 
-    emails = []
-    for uid in ids:
-        typ2, raw = conn.fetch(uid, "(RFC822)")
-        if typ2 != "OK" or not raw or raw[0] is None:
-            continue
-        raw_bytes = raw[0][1] if isinstance(raw[0], tuple) else raw[0]
-        if not isinstance(raw_bytes, bytes):
-            continue
-        msg = _email_module.message_from_bytes(raw_bytes)
-
-        plain, html = _get_body(msg)
-        attachments = _get_attachment_names(msg)
-
-        entry = {
-            "message_id":       msg.get("Message-ID", "").strip(),
-            "subject":          _decode_header(msg.get("Subject", "")),
-            "from":             _decode_header(msg.get("From", "")),
-            "to":               _decode_header(msg.get("To", "")),
-            "date":             msg.get("Date", ""),
-            "body":             plain,
-            "html_body":        html,
-            "attachment_names": attachments,
-        }
-
-        if filter_expr:
-            try:
-                keep = _safe_eval(filter_expr, {"email": entry, "re": _re})
-                if not keep:
-                    continue
-            except (SyntaxError, ValueError, NameError, TypeError) as exc:
-                logger.info("[trigger.email] Filter expression error: %s — skipping message", exc)
+        emails = []
+        for uid in ids:
+            typ2, raw = conn.fetch(uid, "(RFC822)")
+            if typ2 != "OK" or not raw or raw[0] is None:
                 continue
+            raw_bytes = raw[0][1] if isinstance(raw[0], tuple) else raw[0]
+            if not isinstance(raw_bytes, bytes):
+                continue
+            msg = _email_module.message_from_bytes(raw_bytes)
 
-        emails.append(entry)
+            plain, html = _get_body(msg)
+            attachments = _get_attachment_names(msg)
 
-        if mark_read:
-            conn.store(uid, "+FLAGS", "\Seen")
+            entry = {
+                "message_id":       msg.get("Message-ID", "").strip(),
+                "subject":          _decode_header(msg.get("Subject", "")),
+                "from":             _decode_header(msg.get("From", "")),
+                "to":               _decode_header(msg.get("To", "")),
+                "date":             msg.get("Date", ""),
+                "body":             plain,
+                "html_body":        html,
+                "attachment_names": attachments,
+            }
 
-    logger.info("[trigger.email] Fetched %s message(s) from %s", len(emails), folder)
+            if filter_expr:
+                try:
+                    keep = _safe_eval(filter_expr, {"email": entry, "re": _re})
+                    if not keep:
+                        continue
+                except (SyntaxError, ValueError, NameError, TypeError) as exc:
+                    logger.info("[trigger.email] Filter expression error: %s — skipping message", exc)
+                    continue
 
-    result = {"emails": emails, "count": len(emails)}
-    if emails:
-        result.update(emails[0])
-    return result
-    finally:
+            emails.append(entry)
+
+            if mark_read:
+                conn.store(uid, "+FLAGS", "\Seen")
+
+        logger.info("[trigger.email] Fetched %s message(s) from %s", len(emails), folder)
+
+    except OSError as exc:
+        logger.warning("[trigger.email] OS error during search/fetch — %s — %s", folder, exc)
         try:
             conn.logout()
         except (AttributeError, TypeError, OSError):
             pass
+        return {"__error": f"Email trigger: OS error during search/fetch — {exc}", "emails": emails, "count": len(emails)}
+
+    result = {"emails": emails, "count": len(emails)}
+    if emails:
+        result.update(emails[0])
+    try:
+        conn.logout()
+    except (AttributeError, TypeError, OSError):
+        pass
+    return result
