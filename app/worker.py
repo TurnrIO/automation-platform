@@ -209,11 +209,12 @@ def enqueue_script(self, script_name: str, payload: dict):
                    traces=traces)
     except Exception as e:
         sys.stdout, sys.stderr = old_stdout, old_stderr
-        # SystemExit(BaseException) is intentionally allowed to propagate —
-        # sys.exit(0) means "script completed successfully" and must NOT be
-        # treated as a failure. Celery handles it via its normal task lifecycle.
-        if isinstance(e, SystemExit):
-            log.info(f"Script {script_name} exited with code={e.code or 0}")
+        # BaseException subclasses that should propagate, not be logged as errors:
+        # - SystemExit: sys.exit(0) means "script completed successfully" — Celery handles via task lifecycle
+        # - KeyboardInterrupt: SIGINT / Ctrl+C — worker shutdown signal
+        if isinstance(e, (SystemExit, KeyboardInterrupt)):
+            if isinstance(e, SystemExit):
+                log.info(f"Script {script_name} exited with code={e.code or 0}")
             raise
         log.exception(f"Script {script_name} failed")
         _notify_failure(script_name, str(e), task_id)
