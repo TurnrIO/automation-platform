@@ -409,7 +409,7 @@ def get_run_by_task(task_id):
             """SELECT r.*,
                     COALESCE(
                         g.name,
-                        INITCAP(REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(
+                        INITCAP(REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
                             r.workflow,
                             '_', ' '), '__', ' '), '/', ' '), '.py', '')),
                             REPLACE(REPLACE(
