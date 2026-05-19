@@ -411,9 +411,10 @@ def get_run_by_task(task_id):
                         g.name,
                         INITCAP(REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(
                             r.workflow,
-                            '_', ' '), '__', ' '), '/', ' '), '.py', ''),
+                            '_', ' '), '__', ' '), '/', ' '), '.py', '')),
+                            REPLACE(REPLACE(
                             '([a-z])([A-Z])', '\1 \2', 'g'),
-                            '([a-z])([A-Z])', '\1 \2', 'g'))
+                            '([a-z])([A-Z])', '\1 \2', 'g')))
                     ) AS flow_name
                FROM runs r
                LEFT JOIN graph_workflows g ON r.graph_id = g.id
