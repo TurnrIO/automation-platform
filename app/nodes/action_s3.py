@@ -302,4 +302,6 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
         timeout = 30
 
     s3 = _make_client(cred, timeout=timeout)
-    return _OPERATIONS[operation](s3, bucket, key, config, context, creds)
+    result = _OPERATIONS[operation](s3, bucket, key, config, context, creds)
+    logger.info("[action.s3] op=%s bucket=%s key=%s completed result_keys=%s", operation, bucket, key or '(prefix)', list(result.keys()))
+    return result
