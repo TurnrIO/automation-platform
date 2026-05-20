@@ -115,8 +115,8 @@ def _decide(token: str, decision: str, request: Request | None = None) -> HTMLRe
         redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
         r = _redis.from_url(redis_url, socket_connect_timeout=5)
         r.setex(f"approval:{token}:decision", 86400 * 7, decision)
-    except (OSError, RuntimeError, AttributeError) as exc:
-        log.error("approvals: Redis write failed for token %s — %s", token[:8], exc)
+    except _redis.RedisError as exc:
+        log.error("approvals: Redis error for token %s — %s", token[:8], exc)
         return _page(
             "⚠️", "Error",
             "<p>Could not record your decision — the workflow server may be unavailable. "
