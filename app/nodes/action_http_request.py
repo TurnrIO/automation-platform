@@ -207,7 +207,9 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             rbody = r.text
 
         ok = 200 <= r.status_code < 300
-        logger.info("HTTP %s %s → %s", method, r.url, r.status_code)
+        rsize = len(r.content)
+        logger.info("HTTP Request: completed method=%s url=%s status=%s size=%d ok=%s",
+                   method, r.url, r.status_code, rsize, ok)
 
         return {
             "status":  r.status_code,
