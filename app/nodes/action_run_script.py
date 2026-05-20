@@ -48,6 +48,10 @@ def _run_script_worker(script: str, inp, context_json: str, ns_keys: list, resul
         result_val = ns['result'] if has_result else None
         with open(result_path, 'w') as f:
             json.dump({'has_result': has_result, 'result': result_val}, f)
+    except (KeyboardInterrupt, SystemExit):
+        # Re-raise immediately — these signal intentional shutdown and must not
+        # be converted to a RuntimeError that masks the real termination reason.
+        raise
     except Exception:
         # Write exception info so the parent gets a meaningful error, not a
         # generic "script raised an exception" with no details.
