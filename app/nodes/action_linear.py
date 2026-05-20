@@ -116,6 +116,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         if data.get("__error"):
             return data
         issue = data.get("issue", {})
+        logger.info("Linear: get_issue completed id=%s", issue.get("id"))
         return {"issue": issue, "id": issue.get("id"), "title": issue.get("title"),
                 "state": (issue.get("state") or {}).get("name")}
 
@@ -139,6 +140,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         if data.get("__error"):
             return data
         issue = (data.get("issueCreate") or {}).get("issue", {})
+        logger.info("Linear: create_issue completed id=%s", issue.get("id"))
         return {"issue": issue, "id": issue.get("id"), "title": issue.get("title"),
                 "url": issue.get("url")}
 
@@ -159,6 +161,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         if data.get("__error"):
             return data
         issue = (data.get("issueUpdate") or {}).get("issue", {})
+        logger.info("Linear: update_issue completed id=%s", issue.get("id"))
         return {"issue": issue, "id": issue.get("id"), "success": (data.get("issueUpdate") or {}).get("success")}
 
     # ── search issues ─────────────────────────────────────────────────────────
@@ -178,6 +181,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         if data.get("__error"):
             return data
         issues = (data.get("issues") or {}).get("nodes", [])
+        logger.info("Linear: search_issues completed count=%s", len(issues))
         return {"issues": issues, "count": len(issues), "issue": issues[0] if issues else None}
 
     else:
