@@ -141,6 +141,10 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         logger.info("Notion: query_database id=%s", database_id)
         data = notion('POST', f'{base}/databases/{database_id}/query', json=body)
 
+        if data.get('__error'):
+            logger.warning("Notion: query_database failed — %s", data['__error'])
+            return data
+
         # Flatten page properties for easy downstream use
         pages = []
         for p in data.get('results', []):
@@ -171,13 +175,20 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                     props[k] = v
             pages.append({'id': p['id'], 'url': p.get('url'), 'properties': props})
 
-        return {'pages': pages, 'count': len(pages), 'has_more': data.get('has_more', False)}
+        count = len(pages)
+        logger.info("Notion: query_database completed — pages=%d has_more=%s", count, data.get('has_more', False))
+        return {'pages': pages, 'count': count, 'has_more': data.get('has_more', False)}
 
     elif action == 'get_page':
         logger.info("Notion: get_page id=%s", page_id)
         if not page_id:
             raise ValueError("Notion get_page: page_id required")
-        return notion('GET', f'{base}/pages/{page_id}')
+        result = notion('GET', f'{base}/pages/{page_id}')
+        if result.get('__error'):
+            logger.warning("Notion: get_page failed — %s", result['__error'])
+        else:
+            logger.info("Notion: get_page completed — page_id=%s", result.get('id'))
+        return result
 
     elif action == 'create_page':
         logger.info("Notion: create_page in db=%s", database_id)
@@ -206,7 +217,12 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         if title_val:
             body['properties'][title_key] = {'title': [{'type': 'text', 'text': {'content': title_val}}]}
 
-        return notion('POST', f'{base}/pages', json=body)
+        result = notion('POST', f'{base}/pages', json=body)
+        if result.get('__error'):
+            logger.warning("Notion: create_page failed — %s", result['__error'])
+        else:
+            logger.info("Notion: create_page completed — page_id=%s", result.get('id'))
+        return result
 
     elif action == 'update_page':
         logger.info("Notion: update_page id=%s", page_id)
@@ -219,7 +235,12 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         except (JSONDecodeError, ValueError):
             raise ValueError("Notion update_page: properties_json must be valid JSON")
 
-        return notion('PATCH', f'{base}/pages/{page_id}', json={'properties': props})
+        result = notion('PATCH', f'{base}/pages/{page_id}', json={'properties': props})
+        if result.get('__error'):
+            logger.warning("Notion: update_page failed — %s", result['__error'])
+        else:
+            logger.info("Notion: update_page completed — page_id=%s", result.get('id'))
+        return result
 
     elif action == 'search':
         logger.info("Notion: search query=%r", query[:50] if query else '')
@@ -228,7 +249,13 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         body = {'page_size': page_size}
         if query:
             body['query'] = query
-        return notion('POST', f'{base}/search', json=body)
+        result = notion('POST', f'{base}/search', json=body)
+        if result.get('__error'):
+            logger.warning("Notion: search failed — %s", result['__error'])
+        else:
+            results_count = len(result.get('results', []))
+            logger.info("Notion: search completed — results=%d", results_count)
+        return result
 
     elif action == 'append_blocks':
         logger.info("Notion: append_blocks page_id=%s", page_id)
@@ -241,7 +268,12 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         blocks = [{'object': 'block', 'type': 'paragraph',
                    'paragraph': {'rich_text': [{'type': 'text', 'text': {'content': content}}]}}]
 
-        return notion('PATCH', f'{base}/blocks/{page_id}/children', json={'children': blocks})
+        result = notion('PATCH', f'{base}/blocks/{page_id}/children', json={'children': blocks})
+        if result.get('__error'):
+            logger.warning("Notion: append_blocks failed — %s", result['__error'])
+        else:
+            logger.info("Notion: append_blocks completed — page_id=%s", page_id)
+        return result
 
     else:
         raise ValueError(f"Notion: unknown action '{action}'")
