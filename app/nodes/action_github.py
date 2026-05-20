@@ -138,7 +138,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             raise ValueError("GitHub get_repo: repo required")
         logger.info("GitHub: get_repo repo=%s", repo)
         logger.info(f"GitHub: completed action={action}")
-    return gh('GET', f'{base}/repos/{repo}')
+        return gh('GET', f'{base}/repos/{repo}')
 
     elif action == 'list_issues':
         if not repo:
@@ -148,14 +148,14 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         if labels:
             params['labels'] = labels
         logger.info(f"GitHub: completed action={action}")
-    return {'issues': gh('GET', f'{base}/repos/{repo}/issues', params=params)}
+        return {'issues': gh('GET', f'{base}/repos/{repo}/issues', params=params)}
 
     elif action == 'get_issue':
         if not repo or not number:
             raise ValueError("GitHub get_issue: repo and number required")
         logger.info("GitHub: get_issue %s#%s", repo, number)
         logger.info(f"GitHub: completed action={action}")
-    return gh('GET', f'{base}/repos/{repo}/issues/{number}')
+        return gh('GET', f'{base}/repos/{repo}/issues/{number}')
 
     elif action == 'create_issue':
         if not repo or not title:
@@ -165,38 +165,38 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         if labels:
             payload['labels'] = [l.strip() for l in labels.split(',')]
         result = gh('POST', f'{base}/repos/{repo}/issues', json=payload)
-    logger.info(f"GitHub: completed action={action} issue_url={result.get('html_url', '')}")
-    return result
+        logger.info(f"GitHub: completed action={action} issue_url={result.get('html_url', '')}")
+        return result
 
     elif action == 'close_issue':
         if not repo or not number:
             raise ValueError("GitHub close_issue: repo and number required")
         logger.info("GitHub: close_issue %s#%s", repo, number)
         logger.info(f"GitHub: completed action={action}")
-    return gh('PATCH', f'{base}/repos/{repo}/issues/{number}', json={'state': 'closed'})
+        return gh('PATCH', f'{base}/repos/{repo}/issues/{number}', json={'state': 'closed'})
 
     elif action == 'add_comment':
         if not repo or not number or not body:
             raise ValueError("GitHub add_comment: repo, number, and body required")
         logger.info("GitHub: add_comment %s#%s", repo, number)
         logger.info(f"GitHub: completed action={action}")
-    return gh('POST', f'{base}/repos/{repo}/issues/{number}/comments', json={'body': body})
+        return gh('POST', f'{base}/repos/{repo}/issues/{number}/comments', json={'body': body})
 
     elif action == 'list_commits':
         if not repo:
             raise ValueError("GitHub list_commits: repo required")
         logger.info("GitHub: list_commits repo=%s branch=%s", repo, branch)
         result = {'commits': gh('GET', f'{base}/repos/{repo}/commits', params={'sha': branch, 'per_page': 20})}
-    logger.info(f"GitHub: completed action={action} count={len(result.get('commits', []))}")
-    return result
+        logger.info(f"GitHub: completed action={action} count={len(result.get('commits', []))}")
+        return result
 
     elif action == 'list_prs':
         if not repo:
             raise ValueError("GitHub list_prs: repo required")
         logger.info("GitHub: list_prs repo=%s state=%s", repo, state)
         result = {'pull_requests': gh('GET', f'{base}/repos/{repo}/pulls', params={'state': state or 'open', 'per_page': 20})}
-    logger.info(f"GitHub: completed action={action} count={len(result.get('pull_requests', []))}")
-    return result
+        logger.info(f"GitHub: completed action={action} count={len(result.get('pull_requests', []))}")
+        return result
 
     elif action == 'get_file':
         if not repo or not path:
@@ -214,8 +214,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             raise ValueError("GitHub create_release: repo and title (tag name) required")
         logger.info("GitHub: create_release repo=%s tag=%s", repo, title)
         result = gh('POST', f'{base}/repos/{repo}/releases', json={'tag_name': title, 'name': title, 'body': body, 'draft': False})
-    logger.info(f"GitHub: completed action={action} release_url={result.get('html_url', '')}")
-    return result
+        logger.info(f"GitHub: completed action={action} release_url={result.get('html_url', '')}")
+        return result
 
     else:
         raise ValueError(f"GitHub: unknown action '{action}'")
