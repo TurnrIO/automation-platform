@@ -24,6 +24,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     operation = config.get("operation", "parse")
     logger.info("action.csv: op=%s", operation)
     delimiter = _render(config.get("delimiter", ","), context, creds) or ","
+    if not delimiter:
+        raise ValueError("CSV parse: delimiter cannot be empty")
     delimiter = delimiter[0]  # ensure single char
 
     if operation == "parse":
