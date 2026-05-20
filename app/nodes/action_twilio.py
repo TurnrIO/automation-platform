@@ -133,6 +133,9 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         })
         if isinstance(result, dict) and "__error" in result:
             return result
+        sid = result.get("sid", "unknown")
+        status_ = result.get("status", "unknown")
+        logger.info("Twilio %s: sid=%s status=%s to=%s", op, sid, status_, to_)
         return {
             "sid":    result.get("sid"),
             "status": result.get("status"),
@@ -165,6 +168,9 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         result = _req("POST", "/Calls.json", account_sid, auth_token, params)
         if isinstance(result, dict) and "__error" in result:
             return result
+        sid = result.get("sid", "unknown")
+        status_ = result.get("status", "unknown")
+        logger.info("Twilio make_call: sid=%s status=%s to=%s", sid, status_, to_)
         return {
             "sid":    result.get("sid"),
             "status": result.get("status"),
@@ -182,6 +188,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         result = _req("GET", f"{suffix}/{sid}.json", account_sid, auth_token)
         if isinstance(result, dict) and "__error" in result:
             return result
+        logger.info("Twilio check_status: sid=%s status=%s", sid, result.get("status", "unknown"))
         return {
             "sid":        result.get("sid"),
             "status":     result.get("status"),
@@ -204,6 +211,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         if isinstance(result, dict) and "__error" in result:
             return result
         msgs  = result.get("messages", [])
+        logger.info("Twilio list_messages: count=%d to=%s from=%s", len(msgs), to_, from_)
         return {
             "messages": [{
                 "sid": m.get("sid"), "status": m.get("status"),
