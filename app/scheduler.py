@@ -154,6 +154,11 @@ def _make_job(sched, scheduler_ref=None):
                     result = run_graph(_g_data, payload, workspace_id=sched.get("workspace_id"))
                     update_run(task_id, "succeeded", result=result,
                                traces=result.get('traces', []))
+                    log.info("Inline scheduled graph %s completed successfully", task_id)
+                except (ValueError, TypeError, AttributeError) as flow_err:
+                    log.warning("Inline scheduled graph %s hit a flow error — %s: %s",
+                                task_id, type(flow_err).__name__, flow_err)
+                    raise  # propagate to crash the job so APScheduler sees it
                 except (OSError, RuntimeError, psycopg2.Error) as inline_err:
                     # Only catch infrastructure errors; flow logic errors (ValueError,
                     # TypeError, AttributeError from nodes) should propagate uncaught so
