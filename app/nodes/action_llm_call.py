@@ -133,5 +133,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         logger.warning("LLM Call: unexpected API response shape — %s", exc)
         return {"__error": f"LLM call failed: API response shape error — {exc}", "model": model}
     tokens = data.get('usage', {}).get('total_tokens', 0)
+    logger.info("LLM Call: completed model=%s tokens=%d", model, tokens)
 
     return {'response': reply, 'model': model, 'tokens': tokens}
