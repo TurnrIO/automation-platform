@@ -89,14 +89,11 @@ def _req(method, path, account_sid, auth_token, body=None):
         except JSONDecodeError: detail = body_txt
         raise RuntimeError(f"Twilio {e.code}: {detail}")
     except urllib.error.URLError as exc:
-        logger.warning("Twilio: URL error — %s", exc)
-        return {"__error": f"Twilio URL error: {exc}"}
+        raise RuntimeError(f"Twilio URL error: {exc}") from exc
     except OSError as exc:
-        logger.warning("Twilio: connection error — %s", exc)
-        return {"__error": f"Twilio connection error: {exc}"}
+        raise RuntimeError(f"Twilio connection error: {exc}") from exc
     except (KeyError, IndexError) as exc:
-        logger.warning("Twilio: unexpected response shape — %s", exc)
-        return {"__error": f"Twilio response error: {exc}"}
+        raise RuntimeError(f"Twilio response error: {exc}") from exc
 
 def run(config, inp, context, logger, creds=None, **kwargs):
     logger.info("Twilio: run() called")
