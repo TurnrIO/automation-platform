@@ -159,7 +159,7 @@ def _make_job(sched, scheduler_ref=None):
                     # TypeError, AttributeError from nodes) should propagate uncaught so
                     # the error is surfaced as a traceback rather than silently swallowed.
                     log.exception("Inline scheduled graph run failed")
-                    update_run(task_id, "failed", result={"error": str(inline_err)})
+                    update_run(task_id, "dead", result={"error": str(inline_err)})
                     return  # graph failed inline
 
             # Pre-create a run record scoped to the schedule's workspace
