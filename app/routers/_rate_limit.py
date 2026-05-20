@@ -54,8 +54,6 @@ if _redis_url:
         import logging
         logging.getLogger(__name__).warning(f"Redis unavailable ({_exc}), falling back to in-memory storage")
         _storage_uri = "memory://"
-    except (KeyboardInterrupt, SystemExit):
-        raise
 
 limiter = Limiter(key_func=_client_key, default_limits=[], storage_uri=_storage_uri)
 
