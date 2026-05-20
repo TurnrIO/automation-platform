@@ -2,13 +2,13 @@
 
 Schema management is handled by Alembic (see migrations/).
 
-IMPORTANT — RealDictCursor:
+IMPORTANT - RealDictCursor:
   Most queries use cursor_factory=psycopg2.extras.RealDictCursor so rows are
   returned as dicts.  Always access columns by name: row["id"], not row[0].
   When you need a scalar (e.g. COUNT), use an alias and fetch by name:
       cur.execute("SELECT COUNT(*) AS n FROM runs")
       n = cur.fetchone()["n"]   # correct
-      n = cur.fetchone()[0]     # WRONG — raises TypeError with RealDictCursor
+      n = cur.fetchone()[0]     # WRONG - raises TypeError with RealDictCursor
 """
 import os
 import json
@@ -33,8 +33,8 @@ DSN = os.environ.get("DATABASE_URL", "postgresql://hiverunr:hiverunr@db:5432/hiv
 # via get_conn() and returned to the pool on context-manager exit.
 #
 # Tuning env vars (all optional, safe to leave at defaults):
-#   DB_POOL_MIN  — keep-alive connections (default 2)
-#   DB_POOL_MAX  — hard cap on concurrent connections (default 10)
+#   DB_POOL_MIN  - keep-alive connections (default 2)
+#   DB_POOL_MAX  - hard cap on concurrent connections (default 10)
 _pool_lock: threading.Lock = threading.Lock()
 _pool: psycopg2.pool.ThreadedConnectionPool | None = None
 
@@ -57,7 +57,7 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
 
 
 def get_pool_stats() -> dict:
-    """Return current pool utilisation — used by /api/system/status.
+    """Return current pool utilisation - used by /api/system/status.
 
     Returns an empty dict if the pool has not been initialised yet (i.e. no
     DB call has been made since startup).
@@ -123,7 +123,7 @@ def get_conn():
     try:
         yield conn
     except (psycopg2.OperationalError, psycopg2.InterfaceError):
-        # Broken connection — discard rather than returning to pool
+        # Broken connection - discard rather than returning to pool
         close_conn = True
         raise
     finally:
@@ -138,7 +138,7 @@ def run_migrations() -> None:
     """Apply all pending Alembic migrations (runs `alembic upgrade head`).
 
     Called at startup from main.py, worker.py, and scheduler.py in place of
-    the legacy init_db().  Safe to call concurrently — Alembic's migration
+    the legacy init_db().  Safe to call concurrently - Alembic's migration
     lock prevents duplicate execution.
 
     Falls back to the legacy CREATE TABLE IF NOT EXISTS approach if alembic is
@@ -149,7 +149,7 @@ def run_migrations() -> None:
         from alembic.config import Config as _Cfg
         from alembic import command as _cmd
     except ImportError:
-        log.warning("alembic not installed — falling back to legacy init_db")
+        log.warning("alembic not installed - falling back to legacy init_db")
         _init_db_legacy()
         return
 
@@ -162,7 +162,7 @@ def run_migrations() -> None:
     ]
     _ini = next((p for p in _candidates if _os.path.isfile(p)), None)
     if _ini is None:
-        log.warning("alembic.ini not found — falling back to legacy init_db")
+        log.warning("alembic.ini not found - falling back to legacy init_db")
         _init_db_legacy()
         return
 
@@ -173,12 +173,12 @@ def run_migrations() -> None:
 
 
 def init_db():
-    """Legacy wrapper — calls run_migrations().  Kept for back-compat."""
+    """Legacy wrapper - calls run_migrations().  Kept for back-compat."""
     run_migrations()
 
 
 def _init_db_legacy():
-    """Original CREATE TABLE IF NOT EXISTS implementation — kept for reference only."""
+    """Original CREATE TABLE IF NOT EXISTS implementation - kept for reference only."""
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute("""
@@ -383,11 +383,9 @@ def list_runs(page: int = 1, page_size: int = 50,
             f"""SELECT r.*,
                     COALESCE(
                         g.name,
-                        INITCAP(REGEXP_REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(
+                        INITCAP(REPLACE(REPLACE(REPLACE(REPLACE(
                             r.workflow,
-                            '_', ' '), '__', ' '), '/', ' '), '.py', ''),
-                            '([a-z])([A-Z])', '\1 \2', 'g'),
-                            '([a-z])([A-Z])', '\1 \2', 'g')
+                            '_', ' '), '__', ' '), '/', ' '), '.py', ''))
                     ) AS flow_name
                 {base_query}
                 ORDER BY r.id DESC
@@ -408,11 +406,9 @@ def get_run_by_task(task_id):
             """SELECT r.*,
                     COALESCE(
                         g.name,
-                        INITCAP(REGEXP_REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(
+                        INITCAP(REPLACE(REPLACE(REPLACE(REPLACE(
                             r.workflow,
-                            '_', ' '), '__', ' '), '/', ' '), '.py', ''),
-                            '([a-z])([A-Z])', '\1 \2', 'g'),
-                            '([a-z])([A-Z])', '\1 \2', 'g')
+                            '_', ' '), '__', ' '), '/', ' '), '.py', ''))
                     ) AS flow_name
                FROM runs r
                LEFT JOIN graph_workflows g ON r.graph_id = g.id
@@ -745,7 +741,7 @@ def duplicate_graph(graph_id: int) -> dict:
         raise ValueError(f"Graph {graph_id} not found")
     import re as _re
     base = _re.sub(r'\s*\(copy(?:\s+\d+)?\)\s*$', '', src['name']).strip()
-    # Find a unique name: "Name (copy)", "Name (copy 2)", …
+    # Find a unique name: "Name (copy)", "Name (copy 2)", ...
     with get_conn() as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         candidate = f"{base} (copy)"
@@ -812,11 +808,11 @@ def load_all_credentials(workspace_id: int | None = None):
 
 def upsert_credential(name, type_, secret, note="", workspace_id: int | None = None):
     if workspace_id is None:
-        raise ValueError("workspace_id is required — cannot create credentials without a workspace")
+        raise ValueError("workspace_id is required - cannot create credentials without a workspace")
     from app.crypto import encrypt, encryption_configured
     if not encryption_configured():
         raise RuntimeError(
-            "SECRET_KEY is not set — cannot create or update credentials. "
+            "SECRET_KEY is not set - cannot create or update credentials. "
             "Set SECRET_KEY in .env before storing credentials. "
             "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
         )
@@ -834,11 +830,11 @@ def upsert_credential(name, type_, secret, note="", workspace_id: int | None = N
 
 def update_credential(cred_id, type_, secret, note, workspace_id: int | None = None):
     if workspace_id is None:
-        raise ValueError("workspace_id is required — cannot update credentials without a workspace")
+        raise ValueError("workspace_id is required - cannot update credentials without a workspace")
     from app.crypto import encrypt, encryption_configured
     if not encryption_configured():
         raise RuntimeError(
-            "SECRET_KEY is not set — cannot create or update credentials. "
+            "SECRET_KEY is not set - cannot create or update credentials. "
             "Set SECRET_KEY in .env before storing credentials. "
             "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
         )
@@ -863,7 +859,7 @@ def update_credential(cred_id, type_, secret, note, workspace_id: int | None = N
 
 def delete_credential(cred_id, workspace_id: int | None = None):
     if workspace_id is None:
-        raise ValueError("workspace_id is required — cannot delete credentials without a workspace")
+        raise ValueError("workspace_id is required - cannot delete credentials without a workspace")
     with get_conn() as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("DELETE FROM credentials WHERE id=%s AND workspace_id=%s RETURNING id", (cred_id, workspace_id))
@@ -913,7 +909,7 @@ def get_run_metrics(workspace_id: int | None = None):
     with get_conn() as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        # 30-day summary — alias runs as r so ws_filter can use r.workspace_id
+        # 30-day summary - alias runs as r so ws_filter can use r.workspace_id
         cur.execute(f"""
             SELECT
                 COUNT(*)                                                           AS total,
@@ -1339,7 +1335,7 @@ def consume_password_reset_token(token_hash: str):
         )
 
 # ── App settings (KV store) ────────────────────────────────────────────────────
-# NOTE: Use get_setting / set_setting for any new scalar config value —
+# NOTE: Use get_setting / set_setting for any new scalar config value -
 # do NOT add new columns to app_settings or other tables for simple on/off flags.
 # All values are strings; cast to int/bool at the call site.
 def get_setting(key: str, default: str = "") -> str:
@@ -1433,7 +1429,7 @@ def log_audit(
     detail: dict | None = None,
     ip: str | None = None,
 ) -> None:
-    """Append a single audit event.  Fire-and-forget — never raises."""
+    """Append a single audit event.  Fire-and-forget - never raises."""
     try:
         with get_conn() as conn:
             conn.cursor().execute(
