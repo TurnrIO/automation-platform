@@ -60,6 +60,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     if op == "create_thread":
         logger.info("OpenAI Assistant: create_thread")
         thread = _req("POST", "/threads", api_key, {})
+        logger.info("OpenAI Assistant: create_thread done thread_id=%s", thread["id"])
         return {"thread_id": thread["id"], "thread": thread}
 
     # ── add message ───────────────────────────────────────────────────────────
@@ -70,6 +71,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         logger.info("OpenAI Assistant: add_message to thread=%s", thread_id)
         msg = _req("POST", f"/threads/{thread_id}/messages", api_key,
                    {"role": role, "content": content})
+        logger.info("OpenAI Assistant: add_message done thread=%s msg_id=%s", thread_id, msg["id"])
         return {"message_id": msg["id"], "thread_id": thread_id}
 
     # ── run thread (create run + poll until done) ─────────────────────────────
@@ -112,6 +114,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                     break
         return {"reply": reply, "run_id": run_id, "status": run_obj.get("status"),
                 "messages": messages, "thread_id": thread_id}
+    logger.info("OpenAI Assistant: run_thread done thread=%s run=%s status=%s", thread_id, run_id, run_obj.get("status"))
 
     # ── get run status ─────────────────────────────────────────────────────────
     elif op == "get_run_status":
@@ -119,6 +122,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         run_id    = _render(config.get("run_id", ""), context, creds)
         logger.info("OpenAI Assistant: get_run_status thread=%s run=%s", thread_id, run_id)
         run_obj   = _req("GET", f"/threads/{thread_id}/runs/{run_id}", api_key)
+        logger.info("OpenAI Assistant: get_run_status done thread=%s run=%s status=%s", thread_id, run_id, run_obj.get("status"))
         return {"run_id": run_id, "status": run_obj.get("status"), "run": run_obj}
 
     # ── list messages ──────────────────────────────────────────────────────────
@@ -136,6 +140,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                 p["text"]["value"] for p in m.get("content", []) if p.get("type") == "text"
             )
             flat.append({"role": m["role"], "text": text, "id": m["id"]})
+        logger.info("OpenAI Assistant: list_messages done thread=%s count=%s", thread_id, len(flat))
         return {"messages": flat, "count": len(flat), "thread_id": thread_id}
 
     else:
