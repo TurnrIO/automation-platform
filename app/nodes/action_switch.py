@@ -26,6 +26,7 @@ LABEL = "Switch / Router"
 def run(config, inp, context, logger, creds=None, **kwargs):
     """Evaluate `value` expression and match it against ordered cases."""
     value_expr = _render(config.get("value", ""), context, creds)
+    logger.info("Switch: evaluating value=%r", value_expr)
 
     try:
         value = _safe_eval(value_expr, {'input': inp, 'context': context})
