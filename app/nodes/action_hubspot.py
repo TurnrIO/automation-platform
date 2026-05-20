@@ -3,9 +3,7 @@ import ipaddress
 import logging
 import json
 import socket
-import urllib.error
-import urllib.parse
-import urllib.request
+import httpx
 from json import JSONDecodeError
 from app.nodes._utils import _render
 
@@ -73,32 +71,48 @@ def _check_url_ssrf(url: str) -> None:
 
 def _req(method, path, token, body=None):
     url  = _BASE + path
-    # SSRF: validate that _BASE (api.hubapi.com) is not being redirected to a blocked IP
-    # The path is appended to _BASE so we validate the resolved IP of _BASE's hostname
     try:
         _check_url_ssrf(url)
     except ValueError as e:
         raise RuntimeError(f"HubSpot SSRF check failed: {e}")
+
     data = json.dumps(body).encode() if body is not None else None
-    req  = urllib.request.Request(url, data=data, method=method)
-    req.add_header("Authorization", f"Bearer {token}")
-    req.add_header("Content-Type",  "application/json")
-    try:
-        with urllib.request.urlopen(req, timeout=15) as r:
-            raw = r.read().decode()
-            return json.loads(raw) if raw.strip() else {}
-    except urllib.error.HTTPError as e:
-        body_txt = e.read().decode()
-        try:    detail = json.loads(body_txt).get("message", body_txt)
-        except JSONDecodeError: detail = body_txt
-        logger.warning("HubSpot: HTTP error — %s %s", e.code, detail)
-        raise RuntimeError(f"HubSpot HTTP {e.code}: {detail}")
-    except urllib.error.URLError as e:
-        logger.warning("HubSpot: URL error (connection/DNS) — %s", e.reason)
-        raise RuntimeError(f"HubSpot connection error: {e.reason}")
-    except OSError as e:
-        logger.warning("HubSpot: OS/socket error — %s", e)
-        raise RuntimeError(f"HubSpot socket error: {e}")
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type":  "application/json",
+        "Accept":        "application/json",
+    }
+    max_redirects = 10
+    while max_redirects > 0:
+        try:
+            r = httpx.request(method, url, headers=headers, content=data,
+                              timeout=httpx.Timeout(15.0), follow_redirects=False)
+        except httpx.HTTPStatusError as e:
+            body_txt = e.response.text
+            try:    detail = json.loads(body_txt).get("message", body_txt)
+            except JSONDecodeError: detail = body_txt
+            logger.warning("HubSpot: HTTP error — %s %s", e.response.status_code, detail)
+            raise RuntimeError(f"HubSpot HTTP {e.response.status_code}: {detail}")
+        except httpx.HTTPError as e:
+            logger.warning("HubSpot: HTTP error — %s", e)
+            raise RuntimeError(f"HubSpot HTTP error: {e}")
+        except (OSError, httpx.ConnectError, httpx.Timeout, httpx.RemoteProtocolError) as e:
+            logger.warning("HubSpot: connection/socket error — %s", e)
+            raise RuntimeError(f"HubSpot connection error: {e}")
+
+        location = r.headers.get("location") or r.headers.get("Location")
+        if not location:
+            return r.json() if r.content else {}
+        max_redirects -= 1
+        if max_redirects == 0:
+            raise ValueError("HubSpot: too many redirects")
+        url = location
+        try:
+            _check_url_ssrf(url)
+        except ValueError as e:
+            raise RuntimeError(f"HubSpot redirect SSRF check failed: {e}")
+        logger.info("HubSpot: following redirect to %s", url)
+    raise ValueError("HubSpot: redirect loop exceeded")
 
 
 def _flatten(obj):
