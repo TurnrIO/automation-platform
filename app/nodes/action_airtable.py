@@ -241,9 +241,9 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                     params[f"sort[{i}][field]"]     = s.get("field", "")
                     params[f"sort[{i}][direction]"] = s.get("direction", "asc")
 
-            logger.info("Airtable: list_records %s/%s", base_id, table)
             records_raw = _list_all(client, table_url, headers, params)
             records     = [_clean_record(r) for r in records_raw]
+            logger.info("Airtable: list_records %s/%s — %d records", base_id, table, len(records))
             return {
                 "records": records,
                 "count":   len(records),
@@ -254,7 +254,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         elif operation == "get_record":
             if not record_id:
                 raise ValueError("Airtable get_record: 'record_id' is required")
-            logger.info("Airtable: get_record %s", record_id)
             try:
                 resp = client.get(f"{table_url}/{record_id}", headers=headers)
                 resp.raise_for_status()
@@ -265,13 +264,13 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                 logger.warning("Airtable: connection error on get_record — %s", exc)
                 return {"__error": f"Airtable get_record failed: connection error — {exc}"}
             r = _clean_record(resp.json())
-            return {"record": r, "id": r["id"], "fields": r["fields"]}
+            logger.info("Airtable: get_record %s — id=%s", record_id, r["id"])
+            return {"record": r, "id": r["id"], "fields": r["fields"], "count": 1}
 
         # ── create_record ─────────────────────────────────────────────────────
         elif operation == "create_record":
             if not fields:
                 raise ValueError("Airtable create_record: 'fields_json' is required")
-            logger.info("Airtable: create_record in %s", table)
             try:
                 resp = client.post(table_url, headers=headers, json={"fields": fields})
                 resp.raise_for_status()
@@ -282,7 +281,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                 logger.warning("Airtable: connection error on create_record — %s", exc)
                 return {"__error": f"Airtable create_record failed: connection error — {exc}"}
             r = _clean_record(resp.json())
-            return {"record": r, "id": r["id"], "fields": r["fields"], "created": True}
+            logger.info("Airtable: create_record %s — id=%s", table, r["id"])
+            return {"record": r, "id": r["id"], "fields": r["fields"], "created": True, "count": 1}
 
         # ── update_record ─────────────────────────────────────────────────────
         elif operation == "update_record":
@@ -290,7 +290,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                 raise ValueError("Airtable update_record: 'record_id' is required")
             if not fields:
                 raise ValueError("Airtable update_record: 'fields_json' is required")
-            logger.info("Airtable: update_record %s", record_id)
             try:
                 resp = client.patch(f"{table_url}/{record_id}", headers=headers,
                                     json={"fields": fields})
@@ -302,7 +301,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                 logger.warning("Airtable: connection error on update_record — %s", exc)
                 return {"__error": f"Airtable update_record failed: connection error — {exc}"}
             r = _clean_record(resp.json())
-            return {"record": r, "id": r["id"], "fields": r["fields"], "updated": True}
+            logger.info("Airtable: update_record %s — id=%s", record_id, r["id"])
+            return {"record": r, "id": r["id"], "fields": r["fields"], "updated": True, "count": 1}
 
         # ── upsert_record ─────────────────────────────────────────────────────
         elif operation == "upsert_record":
@@ -312,7 +312,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                 raise ValueError("Airtable upsert_record: 'upsert_field' is required")
             if not fields:
                 raise ValueError("Airtable upsert_record: 'fields_json' is required")
-            logger.info("Airtable: upsert_record on field '%s'", upsert_field)
             payload = {
                 "records":       [{"fields": fields}],
                 "performUpsert": {"fieldsToMergeOn": [upsert_field]},
@@ -331,19 +330,21 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             created = data.get("createdRecords", [])
             records_out = [_clean_record(r) for r in data.get("records", [])]
             r = records_out[0] if records_out else {}
+            logger.info("Airtable: upsert_record %s — updated=%s created=%s count=%d",
+                        upsert_field, bool(updated), bool(created), len(records_out))
             return {
                 "record":  r,
                 "id":      r.get("id", ""),
                 "fields":  r.get("fields", {}),
                 "updated": bool(updated),
                 "created": bool(created),
+                "count":   len(records_out),
             }
 
         # ── delete_record ─────────────────────────────────────────────────────
         elif operation == "delete_record":
             if not record_id:
                 raise ValueError("Airtable delete_record: 'record_id' is required")
-            logger.info("Airtable: delete_record %s", record_id)
             try:
                 resp = client.delete(f"{table_url}/{record_id}", headers=headers)
                 resp.raise_for_status()
@@ -354,7 +355,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                 logger.warning("Airtable: connection error on delete_record — %s", exc)
                 return {"__error": f"Airtable delete_record failed: connection error — {exc}"}
             data = resp.json()
-            return {"id": data.get("id", record_id), "deleted": data.get("deleted", True)}
+            logger.info("Airtable: delete_record %s — deleted=%s", record_id, data.get("deleted", True))
+            return {"id": data.get("id", record_id), "deleted": data.get("deleted", True), "count": 1}
 
         else:
             raise ValueError(f"Airtable: unknown operation '{operation}'")
