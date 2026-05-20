@@ -140,8 +140,10 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         if rows and len(rows) > 1:
             headers_row = rows[0]
             records = [dict(zip(headers_row, row)) for row in rows[1:]]
+            logger.info("Google Sheets: read_range complete rows=%d records=%d range=%s", len(rows), len(records), data.get('range'))
             return {'rows': rows, 'records': records, 'count': len(records), 'range': data.get('range')}
 
+        logger.info("Google Sheets: read_range complete rows=%d range=%s", len(rows), data.get('range'))
         return {'rows': rows, 'count': len(rows), 'range': data.get('range')}
 
     elif action == 'write_range':
@@ -166,7 +168,9 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         except (KeyError, IndexError) as exc:
             logger.warning("Google Sheets: unexpected error on write_range — %s", exc)
             return {"__error": f"Google Sheets write_range failed: {exc}"}
-        return r.json()
+        result = r.json()
+        logger.info("Google Sheets: write_range complete updatedCells=%s", result.get('updatedCells'))
+        return result
 
     elif action == 'append_rows':
         logger.info("Google Sheets: append_rows %s", sheet_range)
@@ -192,7 +196,9 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         except (KeyError, IndexError) as exc:
             logger.warning("Google Sheets: unexpected error on append_rows — %s", exc)
             return {"__error": f"Google Sheets append_rows failed: {exc}"}
-        return r.json()
+        result = r.json()
+        logger.info("Google Sheets: append_rows complete updatedCells=%s", result.get('updatedCells'))
+        return result
 
     elif action == 'clear_range':
         logger.info("Google Sheets: clear_range %s", sheet_range)
@@ -208,7 +214,9 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         except (KeyError, IndexError) as exc:
             logger.warning("Google Sheets: unexpected error on clear_range — %s", exc)
             return {"__error": f"Google Sheets clear_range failed: {exc}"}
-        return r.json()
+        result = r.json()
+        logger.info("Google Sheets: clear_range complete clearedRange=%s", result.get('clearedRange'))
+        return result
 
     else:
         raise ValueError(f"Google Sheets: unknown action '{action}'")
