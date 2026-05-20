@@ -101,13 +101,13 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     )
 
     if result.err:
+        logger.warning("action.pdf: rendering failed with %s error(s) — input preview: %s", result.err, html_src[:80])
         raise RuntimeError(f"action.pdf: PDF rendering failed with {result.err} error(s)")
 
     raw = buf.getvalue()
     encoded = base64.b64encode(raw).decode("ascii")
 
     logger.info("action.pdf: generated %d bytes → %s", len(raw), filename)
-
     return {
         "pdf_bytes":   encoded,
         "size_bytes":  len(raw),
