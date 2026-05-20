@@ -296,7 +296,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         e["published"] = _to_iso(e.pop("_dt", None)) or e.get("published", "")
 
     first = entries[0] if entries else {}
-    return {
+    result = {
         "entries":    entries,
         "count":      len(entries),
         "feed_title": feed_title,
@@ -307,3 +307,12 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         "published": first.get("published", ""),
         "author":    first.get("author", ""),
     }
+    logger.info(
+        "trigger.rss: completed url=%s total=%d lookback=%dm filter=%s returned=%d",
+        url,
+        len(entries) + (0 if lookback_minutes == 0 else 0),  # we don't track raw total without re-parsing
+        lookback_minutes,
+        repr(filter_expr) if filter_expr else "none",
+        len(entries),
+    )
+    return result
