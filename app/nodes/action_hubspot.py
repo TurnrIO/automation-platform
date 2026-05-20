@@ -134,6 +134,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         qs       = f"?properties={props}" if props else ""
         result   = _req("GET", f"/crm/v3/objects/{object_type}/{obj_id}{qs}", token)
         flat     = _flatten(result)
+        logger.info("HubSpot: %s retrieved id=%s", op, flat.get("id"))
         return {"object": flat, "id": flat.get("id"), "properties": result.get("properties", {}), "raw": result}
 
     # ── create contact / company / deal ───────────────────────────────────
@@ -144,6 +145,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         except JSONDecodeError: raise ValueError(f"HubSpot create: properties must be valid JSON, got: {props_raw!r}")
         result = _req("POST", f"/crm/v3/objects/{object_type}", token, {"properties": props})
         flat   = _flatten(result)
+        logger.info("HubSpot: %s created id=%s", op, flat.get("id"))
         return {"object": flat, "id": flat.get("id"), "properties": result.get("properties", {}), "raw": result}
 
     # ── update contact / company / deal ───────────────────────────────────
@@ -155,6 +157,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         except JSONDecodeError: raise ValueError(f"HubSpot update: properties must be valid JSON, got: {props_raw!r}")
         result = _req("PATCH", f"/crm/v3/objects/{object_type}/{obj_id}", token, {"properties": props})
         flat   = _flatten(result)
+        logger.info("HubSpot: %s updated id=%s", op, flat.get("id"))
         return {"object": flat, "id": flat.get("id"), "properties": result.get("properties", {}), "raw": result}
 
     # ── search contacts / companies / deals ───────────────────────────────
@@ -175,6 +178,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         result  = _req("POST", f"/crm/v3/objects/{object_type}/search", token, body)
         results = [_flatten(r) for r in result.get("results", [])]
         paging  = result.get("paging", {})
+        logger.info("HubSpot: search returned %d results has_more=%s", len(results), bool(paging.get("next")))
         return {
             "results":  results,
             "count":    len(results),
@@ -189,6 +193,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         deal_id = _render(config.get("deal_id", ""), context, creds)
         result  = _req("GET", f"/crm/v3/objects/deals/{deal_id}?properties=dealname,amount,dealstage,closedate,pipeline", token)
         flat    = _flatten(result)
+        logger.info("HubSpot: get_deal retrieved id=%s", flat.get("id"))
         return {"object": flat, "id": flat.get("id"), "properties": result.get("properties", {}), "raw": result}
 
     # ── create deal ───────────────────────────────────────────────────────
@@ -199,6 +204,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         except JSONDecodeError: raise ValueError(f"HubSpot create_deal: properties must be valid JSON, got: {props_raw!r}")
         result = _req("POST", "/crm/v3/objects/deals", token, {"properties": props})
         flat   = _flatten(result)
+        logger.info("HubSpot: create_deal created id=%s", flat.get("id"))
         return {"object": flat, "id": flat.get("id"), "properties": result.get("properties", {}), "raw": result}
 
     # ── associate ─────────────────────────────────────────────────────────
@@ -210,6 +216,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         assoc_type= _render(config.get("association_type", ""), context, creds)
         body      = [{"associationCategory": assoc_type}]
         _req("PUT", f"/crm/v4/objects/{from_type}/{from_id}/associations/{to_type}/{to_id}", token, body)
+        logger.info("HubSpot: associate %s/%s -> %s/%s", from_type, from_id, to_type, to_id)
         return {"ok": True}
 
     else:
