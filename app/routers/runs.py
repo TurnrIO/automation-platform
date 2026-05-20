@@ -66,10 +66,10 @@ def _sync_stuck_runs():
                         from app.worker import enqueue_script as _enqueue_script
                         _enqueue_script.apply_async(args=[row['workflow'], {}], task_id=row['task_id'])
                         log.info(f"Re-dispatched lost task {row['task_id']} for {row['workflow']}")
-            except (AttributeError, TypeError, RuntimeError, KeyError, OSError) as exc:
-                log.warning("[_sync_stuck_runs] Celery state lookup failed for task %s: %s", row['task_id'], exc)
-    except (AttributeError, TypeError, KeyError, RuntimeError, OSError) as exc:
-        log.warning("[_sync_stuck_runs] Stuck-run reconciliation failed: %s", exc)
+            except (AttributeError, TypeError, RuntimeError, KeyError, OSError, Exception) as exc:
+                log.exception("[_sync_stuck_runs] Celery state lookup failed for task %s", row['task_id'])
+    except (AttributeError, TypeError, KeyError, RuntimeError, OSError, Exception) as exc:
+        log.exception("[_sync_stuck_runs] Stuck-run reconciliation failed")
 
 
 @router.get("/api/runs")
