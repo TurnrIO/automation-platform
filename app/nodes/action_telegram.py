@@ -35,6 +35,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         raise OSError(f"Telegram connection error: {exc}") from exc
     except (JSONDecodeError, KeyError) as exc:
         logger.warning("Telegram: unexpected response shape — %s", exc)
-        return {"__error": f"Telegram response error: {exc}", "sent": False, "chat_id": chat}
+        raise RuntimeError(f"Telegram response error: {exc}") from exc
 
     return {'sent': True, 'chat_id': chat}
