@@ -363,8 +363,10 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
 
     if operation == "get-issue":
         logger.info("action.jira: get-issue key=%s", r("issue_key"))
-        return _get_issue(base_url, email, api_token,
+        result = _get_issue(base_url, email, api_token,
                           r("issue_key"), r("expand"))
+        logger.info("action.jira: get-issue done key=%s id=%s", result.get("key"), result.get("id"))
+        return result
 
     if operation == "create-issue":
         logger.info("action.jira: create-issue project=%s type=%s summary=%r",
@@ -376,7 +378,7 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
             extra = {}
         labels_raw = r("labels")
         labels = [l.strip() for l in labels_raw.split(",") if l.strip()] if labels_raw else []
-        return _create_issue(
+        result = _create_issue(
             base_url, email, api_token,
             project_key  = r("project_key"),
             issue_type   = r("issue_type", "Task"),
@@ -387,40 +389,54 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
             labels       = labels,
             extra_fields = extra,
         )
+        logger.info("action.jira: create-issue done key=%s id=%s url=%s", result.get("key"), result.get("id"), result.get("url", "")[:60])
+        return result
 
     if operation == "update-issue":
         logger.info("action.jira: update-issue key=%s", r("issue_key"))
-        return _update_issue(base_url, email, api_token,
+        result = _update_issue(base_url, email, api_token,
                              r("issue_key"), r("fields"))
+        logger.info("action.jira: update-issue done key=%s ok=%s", result.get("key"), result.get("ok"))
+        return result
 
     if operation == "add-comment":
         logger.info("action.jira: add-comment key=%s", r("issue_key"))
-        return _add_comment(base_url, email, api_token,
+        result = _add_comment(base_url, email, api_token,
                             r("issue_key"), r("comment"))
+        logger.info("action.jira: add-comment done id=%s", result.get("id"))
+        return result
 
     if operation == "search":
         logger.info("action.jira: search jql=%r", r("jql")[:60])
-        return _search(
+        result = _search(
             base_url, email, api_token,
             jql         = r("jql"),
             fields      = r("fields", "summary,status,assignee,priority,issuetype"),
             max_results = r("max_results", "50"),
             start_at    = r("start_at", "0"),
         )
+        logger.info("action.jira: search done count=%s total=%s", result.get("count"), result.get("total"))
+        return result
 
     if operation == "get-transitions":
         logger.info("action.jira: get-transitions key=%s", r("issue_key"))
-        return _get_transitions(base_url, email, api_token, r("issue_key"))
+        result = _get_transitions(base_url, email, api_token, r("issue_key"))
+        logger.info("action.jira: get-transitions done count=%s", len(result.get("transitions", [])))
+        return result
 
     if operation == "transition-issue":
         logger.info("action.jira: transition-issue key=%s transition=%s",
                     r("issue_key"), r("transition_id"))
-        return _transition_issue(base_url, email, api_token,
+        result = _transition_issue(base_url, email, api_token,
                                  r("issue_key"), r("transition_id"), r("comment"))
+        logger.info("action.jira: transition-issue done ok=%s transition_id=%s", result.get("ok"), result.get("transition_id"))
+        return result
 
     if operation == "delete-issue":
         logger.info("action.jira: delete-issue key=%s", r("issue_key"))
-        return _delete_issue(base_url, email, api_token,
+        result = _delete_issue(base_url, email, api_token,
                              r("issue_key"), r("delete_subtasks", "false"))
+        logger.info("action.jira: delete-issue done key=%s ok=%s", result.get("key"), result.get("ok"))
+        return result
 
     raise ValueError(f"action.jira: unknown operation '{operation}'")
