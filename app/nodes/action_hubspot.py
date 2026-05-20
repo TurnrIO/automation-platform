@@ -1,8 +1,10 @@
 """HubSpot CRM REST API v3 node."""
 import ipaddress
-import logging
 import json
+import logging
 import socket
+from urllib import parse as urllib_parse
+
 import httpx
 from json import JSONDecodeError
 from app.nodes._utils import _render
@@ -44,7 +46,7 @@ def _blocked_ip(ip_str: str) -> bool:
 
 
 def _check_url_ssrf(url: str) -> None:
-    parsed = urllib.parse.urlparse(url)
+    parsed = urllib_parse.urlparse(url)
     scheme = parsed.scheme.lower()
     if scheme not in ("http", "https"):
         raise ValueError(
