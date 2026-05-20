@@ -183,7 +183,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         else:
             raise ValueError(f"MongoDB: unknown operation {op!r}")
     finally:
-        if "client" in locals():
+        if 'client' in dir():
             client.close()
 
 def _uri_host(uri: str) -> str:
