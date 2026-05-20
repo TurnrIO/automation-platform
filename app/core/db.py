@@ -387,7 +387,7 @@ def list_runs(page: int = 1, page_size: int = 50,
                             r.workflow,
                             '_', ' '), '__', ' '), '/', ' '), '.py', ''),
                             '([a-z])([A-Z])', '\\1 \\2', 'g'),
-                            '([a-z])([A-Z])', '\\1 \\2', 'g'))))
+                            '([a-z])([A-Z])', '\\1 \\2', 'g')))
                     ) AS flow_name
                 {base_query}
                 ORDER BY r.id DESC
@@ -412,7 +412,7 @@ def get_run_by_task(task_id):
                             r.workflow,
                             '_', ' '), '__', ' '), '/', ' '), '.py', ''),
                             '([a-z])([A-Z])', '\\1 \\2', 'g'),
-                            '([a-z])([A-Z])', '\\1 \\2', 'g'))))
+                            '([a-z])([A-Z])', '\\1 \\2', 'g')))
                     ) AS flow_name
                FROM runs r
                LEFT JOIN graph_workflows g ON r.graph_id = g.id
