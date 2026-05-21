@@ -5,7 +5,7 @@ from json import JSONDecodeError
 import time
 import urllib.request
 import urllib.error
-from app.nodes._utils import _render
+from app.nodes._utils import _render, _resolve_cred_raw
 
 logger = logging.getLogger(__name__)
 NODE_TYPE = "action.openai_assistant"
