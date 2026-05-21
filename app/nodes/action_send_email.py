@@ -121,4 +121,5 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         logger.error("Send Email: connection error to %s:%s — %s", host, smtp_port, e)
         raise ValueError(f"Send Email: connection error to {host}:{smtp_port} — {e}") from e
 
+    logger.info("Send Email: completed to=%s subject=%s", to, subject)
     return {'sent': True, 'to': to, 'subject': subject}
