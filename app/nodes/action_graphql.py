@@ -169,8 +169,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         logger.warning("GraphQL: unexpected response structure — %s", exc)
         return {"__error": f"GraphQL response structure error: {exc}", "endpoint": endpoint}
 
-    logger.info("GraphQL: query complete status=%s has_errors=%s", resp.status_code, bool(errors))
-
     # GraphQL servers typically return 200 even for errors; parse body first
     try:
         body = resp.json()
@@ -180,6 +178,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
 
     data   = body.get("data")
     errors = body.get("errors", [])
+
+    logger.info("GraphQL: query complete status=%s has_errors=%s", resp.status_code, bool(errors))
 
     if errors:
         messages = [e.get("message", str(e)) for e in errors]
