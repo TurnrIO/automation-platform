@@ -112,6 +112,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                         break
                 if reply:
                     break
+        logger.info("OpenAI Assistant: run_thread done thread=%s run=%s status=%s",
+                    thread_id, run_id, run_obj.get("status"))
         return {"reply": reply, "run_id": run_id, "status": run_obj.get("status"),
                 "messages": messages, "thread_id": thread_id}
 
