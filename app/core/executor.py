@@ -432,9 +432,9 @@ def run_graph(graph_data: dict, initial_payload: dict = None, logger=None, _dept
         # Redis unavailable — degrade gracefully instead of crashing the whole run
         log.warning(f"Could not load credentials (Redis): {e}")
         creds = {}
-    except Exception as e:
-        # Any other unexpected error that is not one of the above — still degrade
-        # gracefully but log at error level so it shows up in monitoring
+    except (AttributeError, TypeError, KeyError, ValueError, RuntimeError, OSError, ArithmeticError) as e:
+        # Any other unexpected error not covered above (excludes SystemExit/KeyboardInterrupt
+        # which should propagate). Log at error level so it shows up in monitoring.
         log.error(f"Unexpected error loading credentials: {e}")
         creds = {}
 
@@ -505,7 +505,7 @@ def run_graph(graph_data: dict, initial_payload: dict = None, logger=None, _dept
         _span.set_status(_SC.ERROR, str(exc))
         log.error("Graph failed: %s (%s)", type(exc).__name__, exc)
         raise
-    except Exception as exc:
+    except (OSError, RuntimeError, TimeoutError, ValueError, TypeError, KeyError, ArithmeticError) as exc:
         _span.set_status(_SC.ERROR, str(exc))
         log.error("Graph failed: %s (%s)", type(exc).__name__, exc)
         raise
