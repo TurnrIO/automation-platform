@@ -113,4 +113,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     finally:
         client.close()
 
-    return {'stdout': out, 'stderr': err, 'exit_code': exit_code, 'success': exit_code == 0}
+    result = {'stdout': out, 'stderr': err, 'exit_code': exit_code, 'success': exit_code == 0}
+    logger.info("SSH: done exit_code=%s", exit_code)
+    return result
