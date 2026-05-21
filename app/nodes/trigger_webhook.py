@@ -16,4 +16,5 @@ LABEL = "Webhook Trigger"
 def run(config, inp, context, logger, creds=None, **kwargs):
     """Pass through input as-is (the payload arrives via the webhook endpoint)."""
     logger.info("trigger.webhook pass-through")
+    logger.info("trigger.webhook: completed, forwarded %s bytes", len(str(inp)))
     return inp
