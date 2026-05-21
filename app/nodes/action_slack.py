@@ -109,4 +109,5 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         logger.warning("Slack: unexpected error — %s", exc)
         return {"__error": f"Slack API call failed: {exc}", "sent": False}
 
+    logger.info("Slack: message sent successfully", extra={"chars": len(message)})
     return {"sent": True, "message": message}
