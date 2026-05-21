@@ -439,4 +439,5 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
         logger.info("action.jira: delete-issue done key=%s ok=%s", result.get("key"), result.get("ok"))
         return result
 
+    logger.warning("action.jira: unknown operation '%s'", operation)
     raise ValueError(f"action.jira: unknown operation '{operation}'")
