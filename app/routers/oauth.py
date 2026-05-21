@@ -286,7 +286,7 @@ def oauth_callback(
         upsert_credential(cred_name, cfg["cred_type"], secret, note, workspace_id=workspace_id)
         # State consumed — safe to delete now
         r.delete(f"oauth:state:{state}")
-    except (AttributeError, TypeError, RuntimeError) as exc:
+    except (AttributeError, TypeError, RuntimeError, ValueError) as exc:
         log.error("oauth_callback: failed to save credential: %s", exc)
         return RedirectResponse(_admin_url("?oauth_error=save_failed"))
 
