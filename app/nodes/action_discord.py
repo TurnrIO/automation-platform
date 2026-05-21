@@ -110,4 +110,5 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         return {"__error": f"Discord connection error: {exc}", "sent": False}
 
     logger.info("Discord: sent message", extra={"chars": len(message)})
+    logger.info("Discord: completion")
     return {"sent": True, "message": message}
