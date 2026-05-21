@@ -14,4 +14,5 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     val = _render(config.get('value', ''), context, creds)
     context[key] = val
     logger.info("Set variable: %s", key)
+    logger.info("Set variable: completed key=%s", key)
     return {key: val}
