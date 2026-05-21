@@ -434,7 +434,7 @@ def api_replay_run(run_id: int, request: Request, body: _ReplayBody = None):
             )
             update_run(task_id, "succeeded", result=result,
                        traces=result.get('traces', []))
-        except (OSError, RuntimeError) as inline_err:
+        except (ValueError, TypeError, AttributeError, OSError, RuntimeError) as inline_err:
             log.exception("Inline graph replay failed")
             update_run(task_id, "failed", result={"error": str(inline_err)})
             raise HTTPException(500, f"Graph replay failed: {inline_err}")
