@@ -36,7 +36,7 @@ def _req(method, path, api_key, body=None):
 
 
 def run(config, inp, context, logger, creds=None, **kwargs):
-    logger.info("OpenAI Assistant action started")
+    logger.info("OpenAI Assistant: run start op=%s", config.get("operation", "run_thread"))
     cred_name = config.get("credential", "")
     api_key = ""
     if cred_name and creds:
@@ -59,7 +59,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         logger.info("OpenAI Assistant: create_thread")
         thread = _req("POST", "/threads", api_key, {})
         logger.info("OpenAI Assistant: create_thread done thread_id=%s", thread["id"])
-        return {"thread_id": thread["id"], "thread": thread}
+        result = {"thread_id": thread["id"], "thread": thread}
 
     # ── add message ───────────────────────────────────────────────────────────
     elif op == "add_message":
@@ -70,7 +70,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         msg = _req("POST", f"/threads/{thread_id}/messages", api_key,
                    {"role": role, "content": content})
         logger.info("OpenAI Assistant: add_message done thread=%s msg_id=%s", thread_id, msg["id"])
-        return {"message_id": msg["id"], "thread_id": thread_id}
+        result = {"message_id": msg["id"], "thread_id": thread_id}
 
     # ── run thread (create run + poll until done) ─────────────────────────────
     elif op == "run_thread":
@@ -112,8 +112,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                     break
         logger.info("OpenAI Assistant: run_thread done thread=%s run=%s status=%s",
                     thread_id, run_id, run_obj.get("status"))
-        return {"reply": reply, "run_id": run_id, "status": run_obj.get("status"),
-                "messages": messages, "thread_id": thread_id}
+        result = {"reply": reply, "run_id": run_id, "status": run_obj.get("status"),
+                  "messages": messages, "thread_id": thread_id}
 
     # ── get run status ─────────────────────────────────────────────────────────
     elif op == "get_run_status":
@@ -122,7 +122,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         logger.info("OpenAI Assistant: get_run_status thread=%s run=%s", thread_id, run_id)
         run_obj   = _req("GET", f"/threads/{thread_id}/runs/{run_id}", api_key)
         logger.info("OpenAI Assistant: get_run_status done thread=%s run=%s status=%s", thread_id, run_id, run_obj.get("status"))
-        return {"run_id": run_id, "status": run_obj.get("status"), "run": run_obj}
+        result = {"run_id": run_id, "status": run_obj.get("status"), "run": run_obj}
 
     # ── list messages ──────────────────────────────────────────────────────────
     elif op == "list_messages":
@@ -140,7 +140,10 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             )
             flat.append({"role": m["role"], "text": text, "id": m["id"]})
         logger.info("OpenAI Assistant: list_messages done thread=%s count=%s", thread_id, len(flat))
-        return {"messages": flat, "count": len(flat), "thread_id": thread_id}
+        result = {"messages": flat, "count": len(flat), "thread_id": thread_id}
 
     else:
         raise ValueError(f"OpenAI Assistant: unknown operation {op!r}")
+
+    logger.info("OpenAI Assistant: run end op=%s result_keys=%s", op, list(result.keys()))
+    return result
