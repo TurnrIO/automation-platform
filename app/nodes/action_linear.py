@@ -116,7 +116,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         if data.get("__error"):
             return data
         issue = data.get("issue", {})
-        logger.info("Linear: get_issue completed id=%s", issue.get("id"))
+        logger.info("Linear: get_issue completed id=%s title=%s", issue.get("id"), (issue.get("title") or "")[:40])
         return {"issue": issue, "id": issue.get("id"), "title": issue.get("title"),
                 "state": (issue.get("state") or {}).get("name")}
 
@@ -140,7 +140,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         if data.get("__error"):
             return data
         issue = (data.get("issueCreate") or {}).get("issue", {})
-        logger.info("Linear: create_issue completed id=%s", issue.get("id"))
+        logger.info("Linear: create_issue completed id=%s title=%s", issue.get("id"), (issue.get("title") or "")[:40])
         return {"issue": issue, "id": issue.get("id"), "title": issue.get("title"),
                 "url": issue.get("url")}
 
@@ -161,8 +161,9 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         if data.get("__error"):
             return data
         issue = (data.get("issueUpdate") or {}).get("issue", {})
-        logger.info("Linear: update_issue completed id=%s", issue.get("id"))
-        return {"issue": issue, "id": issue.get("id"), "success": (data.get("issueUpdate") or {}).get("success")}
+        success = (data.get("issueUpdate") or {}).get("success")
+        logger.info("Linear: update_issue completed id=%s success=%s", issue.get("id"), success)
+        return {"issue": issue, "id": issue.get("id"), "success": success}
 
     # ── search issues ─────────────────────────────────────────────────────────
     elif op == "search_issues":
