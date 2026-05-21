@@ -26,6 +26,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         logger.warning("Filter expression evaluation failed: %s — returning all items", e)
         kept = items
 
-    logger.info("Filter: kept %s/%s items", len(kept), len(items))
+    logger.info("Filter: completed — kept %s/%s items", len(kept), len(items))
     return {'items': kept, 'count': len(kept), 'total': len(items)}
 
