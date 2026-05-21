@@ -130,7 +130,7 @@ def get_conn():
         try:
             pool.putconn(conn, close=close_conn)
         except (AttributeError, ValueError, RuntimeError) as _e:
-            logger.warning("get_conn: pool.putconn failed: %s", _e)
+            log.warning("get_conn: pool.putconn failed: %s", _e)
 
 psycopg2.extras.register_uuid()
 
