@@ -12,10 +12,56 @@ import os
 import json
 import time
 import logging
+import psycopg2
+import redis.exceptions
+from json import JSONDecodeError
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 log = logging.getLogger(__name__)
+
+
+
+class LoggingLoggerAdapter:
+    """"Wrap a bare callable or a Logger into a unified logger interface.
+
+    Supports BOTH call patterns that appear across the codebase:
+      - logger(msg)                 ← bare callable (print, messages.append, etc.)
+      - logger.info(msg, ...)       ← logging.Logger method style
+
+    When the wrapped target is a Logger, pass through all method calls directly.
+    When it's a bare callable, only allow .info() (used by action nodes) and .warning()
+    (used by some routers) — all other attributes raise AttributeError so misuse
+    is loudly visible rather than silently ignored.
+    """
+    def __init__(self, target):
+        self._target = target
+        self._is_logger = isinstance(target, logging.Logger)
+
+    def info(self, msg, *args, **kwargs):
+        if self._is_logger:
+            self._target.info(msg, *args, **kwargs)
+        else:
+            # Bare callable — format as single string like Logger does
+            msg_str = msg % args if args else msg
+            self._target(msg_str)
+
+    def warning(self, msg, *args, **kwargs):
+        if self._is_logger:
+            self._target.warning(msg, *args, **kwargs)
+        else:
+            msg_str = msg % args if args else msg
+            self._target(msg_str)
+
+    def error(self, msg, *args, **kwargs):
+        if self._is_logger:
+            self._target.error(msg, *args, **kwargs)
+        else:
+            msg_str = msg % args if args else msg
+            self._target(msg_str)
+
+    def __repr__(self):
+        return f"<LoggingLoggerAdapter({self._target!r})>"
 
 # ── re-export _render for backward compatibility (call_graph etc) ──────────
 from app.nodes._utils import _render  # noqa: F401
@@ -45,6 +91,8 @@ def _topo(nodes, edges):
             indeg[nb] -= 1
             if indeg[nb] == 0:
                 queue.append(nb)
+    if len(order) != len(ids):
+        raise ValueError("graph contains a cycle")
     return order, succ
 
 
@@ -113,13 +161,18 @@ def _run_node(node_type, config, inp, context, logger, edges, nodes_map, creds=N
     handler = get_handler(node_type)
     if handler is None:
         raise ValueError(f"Unknown node type: {node_type!r} — not found in node registry")
-    upstream_ids = [e['source'] for e in edges if e['target'] == kwargs.get('_nid', '')]
+    nid = kwargs.get('_nid', '')
+    # upstream_ids: list for backward-compat callers (action_merge, action_aggregate)
+    upstream_ids = [e['source'] for e in edges if e['target'] == nid]
+    # predecessor_ids: set for template injection guard in _render
+    predecessor_ids = set(upstream_ids)
     return handler(
         config, inp, context, logger,
         creds=creds,
         upstream_ids=upstream_ids,
         edges=edges,
         nodes_map=nodes_map,
+        predecessor_ids=predecessor_ids,
         **{k: v for k, v in kwargs.items() if k != '_nid'},
     )
 
@@ -136,8 +189,10 @@ def run_one_node(node: dict, inp: Any, context: dict,
     Returns:
         {"output": ..., "duration_ms": ..., "error": None | str}
     """
-    if logger is None:
-        logger = lambda msg: log.info(msg)
+    # Always wrap: run_graph wraps here, run_one_node wraps here. If called directly
+    # (not via run_graph), we wrap. If called from run_graph, run_graph already
+    # wrapped — but wrapping twice is safe since LoggingLoggerAdapter just delegates.
+    logger = LoggingLoggerAdapter(logger if logger is not None else log)
     if creds is None:
         creds = {}
     if edges is None:
@@ -161,7 +216,7 @@ def run_one_node(node: dict, inp: Any, context: dict,
             "duration_ms": int((time.time() - t_start) * 1000),
             "error":       None,
         }
-    except Exception as exc:
+    except (JSONDecodeError, OSError, ValueError, TypeError, RuntimeError, AttributeError, ArithmeticError) as exc:
         return {
             "output":      None,
             "duration_ms": int((time.time() - t_start) * 1000),
@@ -233,7 +288,7 @@ def _exec_node(nid, nodes_map, edges, context, creds, logger, succ, _depth):
         for attempt in range(retry_max + 1):
             try:
                 if attempt > 0:
-                    logger(f"RETRY {attempt}/{retry_max} {ntype} [{nid}]")
+                    log.info(f"RETRY {attempt}/{retry_max} {ntype} [{nid}]")
                     time.sleep(retry_delay)
                 result = _run_node(
                     ntype, config, inp, context, logger,
@@ -242,9 +297,9 @@ def _exec_node(nid, nodes_map, edges, context, creds, logger, succ, _depth):
                 )
                 last_err = None
                 break
-            except Exception as e:
+            except (JSONDecodeError, OSError, ValueError, TypeError, RuntimeError, AttributeError, ArithmeticError) as e:
                 last_err = e
-                logger(f"ERROR attempt {attempt+1} {ntype} [{nid}]: {e}")
+                log.info(f"ERROR attempt {attempt+1} {ntype} [{nid}]: {e}")
 
         trace['duration_ms'] = int((time.time() - t_start) * 1000)
         trace['attempts']    = attempt + 1
@@ -258,7 +313,7 @@ def _exec_node(nid, nodes_map, edges, context, creds, logger, succ, _depth):
             if fail_mode == 'continue':
                 error_out = {'__error': err_msg, '__node': nid, '__type': ntype}
                 trace['output'] = error_out
-                logger(f"CONTINUE-ON-ERROR [{nid}]: {err_msg}")
+                log.info(f"CONTINUE-ON-ERROR [{nid}]: {err_msg}")
                 return error_out, trace, set(), None
             else:
                 result_err = {'__error': err_msg}
@@ -276,10 +331,10 @@ def _exec_node(nid, nodes_map, edges, context, creds, logger, succ, _depth):
             false_reach = _reachable_via_handle(nid, 'false', succ)
             if condition_val:
                 skip_delta = false_reach - true_reach
-                logger(f"Condition [{nid}] = True  → skipping {len(skip_delta)} false-branch node(s)")
+                log.info(f"Condition [{nid}] = True  → skipping {len(skip_delta)} false-branch node(s)")
             else:
                 skip_delta = true_reach - false_reach
-                logger(f"Condition [{nid}] = False → skipping {len(skip_delta)} true-branch node(s)")
+                log.info(f"Condition [{nid}] = False → skipping {len(skip_delta)} true-branch node(s)")
 
         # Detect loop node (caller handles body expansion sequentially)
         loop_result = result if (isinstance(result, dict) and result.get('__loop__')) else None
@@ -328,7 +383,7 @@ def _expand_loop(nid, loop_result, nodes_map, edges, context, creds, logger, suc
                     )
                 else:
                     loop_ctx[bid] = {'__error': f"Unknown node type in loop: {bn.get('type')}"}
-            except Exception as e:
+            except (AttributeError, TypeError, KeyError, ValueError, ArithmeticError, OSError) as e:
                 loop_ctx[bid] = {'__error': str(e)}
         loop_results.append(loop_ctx.get(body_targets[0]) if body_targets else item)
     return {'loop_results': loop_results, 'count': len(loop_results)}
@@ -344,8 +399,7 @@ def run_graph(graph_data: dict, initial_payload: dict = None, logger=None, _dept
     completes with a trace-compatible dict plus a 'type' key
     ('node_start' | 'node_done').  Safe to be None.
     """
-    if logger is None:
-        logger = lambda msg: log.info(msg)
+    logger = LoggingLoggerAdapter(logger if logger is not None else log)
     if _depth > 5:
         raise RuntimeError("Call Graph: maximum sub-flow nesting depth (5) exceeded")
 
@@ -359,8 +413,29 @@ def run_graph(graph_data: dict, initial_payload: dict = None, logger=None, _dept
     try:
         from app.core.db import load_all_credentials
         creds = load_all_credentials(workspace_id=workspace_id)
-    except Exception as e:
+    except (OSError, TimeoutError, ImportError) as e:
         log.warning(f"Could not load credentials: {e}")
+        creds = {}
+    except (ConnectionError, RuntimeError) as exc:
+        # RuntimeError from Redis/client init or other infra not covered above
+        log.warning(f"Could not load credentials (infra): {exc}")
+        creds = {}
+    except JSONDecodeError:
+        # Corrupt data in DB credential store — skip credentials for this run
+        log.warning("Corrupt credential data in DB")
+        creds = {}
+    except psycopg2.Error as e:
+        # psycopg2.OperationalError and subclasses (DB unavailable, connection refused)
+        log.warning(f"Could not load credentials (DB): {e}")
+        creds = {}
+    except redis.exceptions.ConnectionError as e:
+        # Redis unavailable — degrade gracefully instead of crashing the whole run
+        log.warning(f"Could not load credentials (Redis): {e}")
+        creds = {}
+    except Exception as e:
+        # Any other unexpected error that is not one of the above — still degrade
+        # gracefully but log at error level so it shows up in monitoring
+        log.error(f"Unexpected error loading credentials: {e}")
         creds = {}
 
     nodes_map    = {n['id']: n for n in nodes}
@@ -395,7 +470,7 @@ def run_graph(graph_data: dict, initial_payload: dict = None, logger=None, _dept
             for node_id, output in prior_context.items():
                 if node_id not in ('__initial_payload__',) and node_id in visited:
                     context[node_id] = output
-        logger(f"[run_from] starting at node {start_node_id}, skipping {len(skip_nodes)} ancestor(s)")
+        log.info(f"[run_from] starting at node {start_node_id}, skipping {len(skip_nodes)} ancestor(s)")
 
     # Determine execution mode
     parallel    = graph_data.get('parallel', False) or \
@@ -414,17 +489,25 @@ def run_graph(graph_data: dict, initial_payload: dict = None, logger=None, _dept
     _token = _otel_ctx.attach(_otel_trace.set_span_in_context(_span))
 
     try:
+        log.info("Graph starting: %s nodes, %s edges, parallel=%s, depth=%d",
+                    len(nodes), len(edges), parallel, _depth)
         if parallel and max_workers > 1:
             levels = _compute_levels(nodes, succ)
             _run_parallel(levels, nodes_map, edges, context, results, traces,
                           creds, logger, succ, skip_nodes, _depth, max_workers,
-                          node_callback=node_callback)
+                          node_callback=node_callback, start_node_id=start_node_id)
         else:
             _run_sequential(order, nodes_map, edges, context, results, traces,
                             creds, logger, succ, skip_nodes, _depth,
-                            node_callback=node_callback)
+                            node_callback=node_callback, start_node_id=start_node_id)
+        log.info("Graph complete: %s nodes executed, %s traces", len(results), len(traces))
+    except (OSError, TimeoutError) as exc:
+        _span.set_status(_SC.ERROR, str(exc))
+        log.error("Graph failed: %s (%s)", type(exc).__name__, exc)
+        raise
     except Exception as exc:
         _span.set_status(_SC.ERROR, str(exc))
+        log.error("Graph failed: %s (%s)", type(exc).__name__, exc)
         raise
     finally:
         _span.set_attribute("graph.trace_count", len(traces))
@@ -436,7 +519,8 @@ def run_graph(graph_data: dict, initial_payload: dict = None, logger=None, _dept
 
 # ── sequential execution path ─────────────────────────────────────────────
 def _run_sequential(order, nodes_map, edges, context, results, traces,
-                    creds, logger, succ, skip_nodes, _depth, node_callback=None):
+                    creds, logger, succ, skip_nodes, _depth, node_callback=None,
+                    start_node_id=None):
     for nid in order:
         node  = nodes_map.get(nid)
         if not node:
@@ -465,14 +549,14 @@ def _run_sequential(order, nodes_map, edges, context, results, traces,
             traces.append(trace)
             continue
 
-        if ndata.get('disabled', False):
-            logger(f"SKIP (disabled) {ntype} [{nid}]")
+        if ndata.get('disabled', False) and nid != start_node_id:
+            log.info(f"SKIP (disabled) {ntype} [{nid}]")
             results[nid] = {'__disabled': True}
             traces.append(trace)
             continue
 
         if nid in skip_nodes:
-            logger(f"SKIP (branch not taken) {ntype} [{nid}]")
+            log.info(f"SKIP (branch not taken) {ntype} [{nid}]")
             results[nid] = {'__skipped': True}
             trace['error'] = 'Branch not taken'
             traces.append(trace)
@@ -485,8 +569,8 @@ def _run_sequential(order, nodes_map, edges, context, results, traces,
             try:
                 node_callback({'type': 'node_start', 'node_id': nid,
                                'label': ndata.get('label', ''), 'node_type': ntype})
-            except Exception:
-                pass
+            except (AttributeError, TypeError) as exc:
+                log.warning("node_callback(node_start) failed for %s: %s", nid, exc)
 
         result, trace, skip_delta, abort_or_loop = _exec_node(
             nid, nodes_map, edges, context, creds, logger, succ, _depth
@@ -502,8 +586,8 @@ def _run_sequential(order, nodes_map, edges, context, results, traces,
             if node_callback:
                 try:
                     node_callback({'type': 'node_done', **trace})
-                except Exception:
-                    pass
+                except (AttributeError, TypeError) as exc:
+                    log.warning("node_callback(node_done) failed for %s: %s", nid, exc)
             raise RuntimeError(
                 f"Node [{a_nid}] ({a_ntype}) failed after {attempts} attempt(s): {exc}"
             ) from exc
@@ -514,8 +598,8 @@ def _run_sequential(order, nodes_map, edges, context, results, traces,
         if node_callback:
             try:
                 node_callback({'type': 'node_done', **trace})
-            except Exception:
-                pass
+            except (AttributeError, TypeError) as exc:
+                log.warning("node_callback(node_done) failed for %s: %s", nid, exc)
 
         # Loop body expansion
         if abort_or_loop is not None and isinstance(abort_or_loop, dict) \
@@ -529,7 +613,7 @@ def _run_sequential(order, nodes_map, edges, context, results, traces,
 # ── parallel execution path ───────────────────────────────────────────────
 def _run_parallel(levels, nodes_map, edges, context, results, traces,
                   creds, logger, succ, skip_nodes, _depth, max_workers,
-                  node_callback=None):
+                  node_callback=None, start_node_id=None):
     """Level-based parallel execution.
 
     Nodes within the same level have no data dependencies between them —
@@ -555,8 +639,8 @@ def _run_parallel(levels, nodes_map, edges, context, results, traces,
                                 'input': None, 'output': None, 'error': None})
                 continue
 
-            if ndata.get('disabled', False):
-                logger(f"SKIP (disabled) {ntype} [{nid}]")
+            if ndata.get('disabled', False) and nid != start_node_id:
+                log.info(f"SKIP (disabled) {ntype} [{nid}]")
                 results[nid] = {'__disabled': True}
                 traces.append({'node_id': nid, 'type': ntype,
                                 'label': ndata.get('label', ''),
@@ -565,7 +649,7 @@ def _run_parallel(levels, nodes_map, edges, context, results, traces,
                 continue
 
             if nid in skip_nodes:
-                logger(f"SKIP (branch not taken) {ntype} [{nid}]")
+                log.info(f"SKIP (branch not taken) {ntype} [{nid}]")
                 results[nid] = {'__skipped': True}
                 traces.append({'node_id': nid, 'type': ntype,
                                 'label': ndata.get('label', ''),
@@ -591,8 +675,8 @@ def _run_parallel(levels, nodes_map, edges, context, results, traces,
                     node_callback({'type': 'node_start', 'node_id': nid,
                                    'label': nd.get('data', {}).get('label', ''),
                                    'node_type': nd.get('type', '')})
-                except Exception:
-                    pass
+                except (AttributeError, TypeError) as exc:
+                    log.warning("node_callback(node_start) failed for level node %s: %s", nid, exc)
 
         if len(active) == 1:
             # Fast path: avoid threading overhead for single-node levels
@@ -621,8 +705,8 @@ def _run_parallel(levels, nodes_map, edges, context, results, traces,
                     nid = future_map[future]
                     try:
                         node_results[nid] = future.result()
-                    except Exception as exc:
-                        # Shouldn't happen (_exec_node never raises), but be safe
+                    except (AttributeError, TypeError) as exc:
+                        log.warning("_exec_node raised in parallel worker for %s: %s", nid, exc)
                         node_results[nid] = (
                             {'__error': str(exc)},
                             {'node_id': nid, 'status': 'error', 'error': str(exc),
@@ -655,8 +739,8 @@ def _apply_node_result(nid, result, trace, skip_delta, abort_or_loop,
         if node_callback:
             try:
                 node_callback({'type': 'node_done', **trace})
-            except Exception:
-                pass
+            except (AttributeError, TypeError) as exc:
+                log.warning("node_callback(node_done) failed for %s: %s", nid, exc)
         raise RuntimeError(
             f"Node [{a_nid}] ({a_ntype}) failed after {attempts} attempt(s): {exc}"
         ) from exc
@@ -667,8 +751,8 @@ def _apply_node_result(nid, result, trace, skip_delta, abort_or_loop,
     if node_callback:
         try:
             node_callback({'type': 'node_done', **trace})
-        except Exception:
-            pass
+        except (AttributeError, TypeError) as exc:
+            log.warning("node_callback(node_done) failed for %s: %s", nid, exc)
 
     if abort_or_loop is not None and isinstance(abort_or_loop, dict) \
             and abort_or_loop.get('__loop__'):

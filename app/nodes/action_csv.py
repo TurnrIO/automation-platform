@@ -7,9 +7,14 @@ Operations:
 Output (parse):    { rows: [...], count: N, headers: [...] }
 Output (generate): { csv: "...", count: N }
 """
+
 import csv
 import io
+import logging
+from json import JSONDecodeError
 from app.nodes._utils import _render
+
+logger = logging.getLogger(__name__)
 
 NODE_TYPE = "action.csv"
 LABEL = "CSV"
@@ -17,7 +22,10 @@ LABEL = "CSV"
 
 def run(config, inp, context, logger, creds=None, **kwargs):
     operation = config.get("operation", "parse")
+    logger.info("action.csv: op=%s", operation)
     delimiter = _render(config.get("delimiter", ","), context, creds) or ","
+    if not delimiter:
+        raise ValueError("CSV parse: delimiter cannot be empty")
     delimiter = delimiter[0]  # ensure single char
 
     if operation == "parse":
@@ -37,7 +45,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         reader = csv.DictReader(io.StringIO(content), delimiter=delimiter)
         rows = [dict(row) for row in reader]
         headers = list(reader.fieldnames or [])
-        logger(f"CSV parsed {len(rows)} rows, {len(headers)} columns")
+        logger.info("CSV parsed %s rows, %s columns", len(rows), len(headers))
         return {"rows": rows, "count": len(rows), "headers": headers}
 
     elif operation == "generate":
@@ -49,8 +57,9 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                 # Template rendered to a string — evaluate it
                 try:
                     import json as _json
+
                     items = _json.loads(items)
-                except Exception:
+                except JSONDecodeError:
                     items = inp
         else:
             items = inp
@@ -64,8 +73,9 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         buf = io.StringIO()
         if isinstance(items[0], dict):
             headers = list(items[0].keys())
-            writer = csv.DictWriter(buf, fieldnames=headers, delimiter=delimiter,
-                                    extrasaction="ignore", lineterminator="\n")
+            writer = csv.DictWriter(
+                buf, fieldnames=headers, delimiter=delimiter, extrasaction="ignore", lineterminator="\n"
+            )
             writer.writeheader()
             writer.writerows(items)
         else:
@@ -73,8 +83,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             writer.writerows(items)
 
         csv_str = buf.getvalue()
-        logger(f"CSV generated {len(items)} rows")
+        logger.info("CSV generated %s rows", len(items))
         return {"csv": csv_str, "count": len(items)}
-
     else:
         raise ValueError(f"action.csv: unknown operation {operation!r}")

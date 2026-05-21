@@ -89,7 +89,7 @@ def api_create_workspace(body: WorkspaceCreate, request: Request):
 
     try:
         ws = create_workspace(body.name, slug=slug, plan=body.plan)
-    except Exception as exc:
+    except (AttributeError, TypeError, RuntimeError) as exc:
         raise HTTPException(400, str(exc))
 
     # Add the creator as workspace owner

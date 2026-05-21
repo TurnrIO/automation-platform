@@ -1,5 +1,7 @@
 """Graphs, graph versions, and graph-run routers."""
 import json
+from json import JSONDecodeError
+import psycopg2
 import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -8,7 +10,7 @@ from typing import Optional
 from app.deps import _check_admin, _check_flow_access, _resolve_workspace, ROLE_LEVELS
 from app.core.db import (
     list_graphs, create_graph, get_graph, update_graph, delete_graph,
-    get_graph_by_slug, duplicate_graph,
+    get_graph_by_slug, duplicate_graph, count_graphs,
     list_graph_versions, save_graph_version, get_graph_version,
     sync_graph_schedules,
     get_graph_alerts, update_graph_alerts,
@@ -19,6 +21,7 @@ from app.core.db import (
     create_invite_token,
 )
 from app.worker import enqueue_graph
+from app.core.executor import run_graph
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -30,7 +33,7 @@ def _graph_with_data(g):
         return None
     try:
         gd = json.loads(g.get('graph_json') or '{}')
-    except Exception:
+    except JSONDecodeError:
         gd = {}
     return {**{k: v for k, v in g.items() if k != 'graph_json'}, 'graph_data': gd}
 
@@ -39,8 +42,8 @@ def _sync_cron_triggers(graph_id: int, graph_data: dict):
     try:
         nodes = (graph_data or {}).get('nodes', [])
         sync_graph_schedules(graph_id, [n for n in nodes if n.get('type') == 'trigger.cron'])
-    except Exception as e:
-        log.warning(f"Could not sync schedules for graph {graph_id}: {e}")
+    except (AttributeError, RuntimeError, OSError) as exc:
+        log.warning(f"Could not sync schedules for graph {graph_id}: {exc}")
 
 
 def _is_admin_or_owner(user: dict) -> bool:
@@ -62,15 +65,27 @@ class GraphUpdate(BaseModel):
 
 
 @router.get("/api/graphs")
-def api_graphs(request: Request):
+def api_graphs(request: Request, page: int = 1, page_size: int = 50):
+    """List graphs for the caller's workspace with pagination."""
     user = _check_admin(request)
     workspace_id = _resolve_workspace(request, user)
-    all_graphs = list_graphs(workspace_id=workspace_id)
+    page = max(1, page)
+    page_size = min(max(1, page_size), 100)
+    all_graphs = list_graphs(workspace_id=workspace_id, page=page, page_size=page_size)
     # Viewer-role users only see flows they have explicit permission for.
     if not _is_admin_or_owner(user) and user.get("id", 0) != 0:
         permitted = set(get_permitted_graph_ids(user["id"]))
         all_graphs = [g for g in all_graphs if g["id"] in permitted]
-    return [_graph_with_data(g) for g in all_graphs]
+    total = count_graphs(workspace_id=workspace_id)
+    return {
+        "graphs": [_graph_with_data(g) for g in all_graphs],
+        "pagination": {
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "pages": (total + page_size - 1) // page_size if total else 1,
+        },
+    }
 
 
 @router.post("/api/graphs")
@@ -88,6 +103,9 @@ def api_graph_create(body: GraphCreate, request: Request):
     return _graph_with_data(g)
 
 
+# Maximum import payload size: 10 MB
+GRAPH_IMPORT_MAX_BYTES = 10 * 1024 * 1024
+
 @router.post("/api/graphs/import")
 async def api_graph_import(request: Request):
     """Import a flow from a JSON bundle.
@@ -100,10 +118,20 @@ async def api_graph_import(request: Request):
     if not _is_admin_or_owner(user):
         raise HTTPException(403, "Importing flows requires admin or owner role")
     workspace_id = _resolve_workspace(request, user)
+    content_length = request.headers.get("content-length")
+    try:
+        if content_length and int(content_length) > GRAPH_IMPORT_MAX_BYTES:
+            raise HTTPException(413, f"Payload too large — maximum {GRAPH_IMPORT_MAX_BYTES // (1024*1024)} MB")
+    except ValueError:
+        raise HTTPException(400, "Invalid Content-Length header")
     try:
         body = await request.json()
-    except Exception:
+    except JSONDecodeError:
         raise HTTPException(400, "Invalid JSON body")
+
+    # Reject suspiciously large parsed bodies even if Content-Length was not set
+    if len(json.dumps(body)) > GRAPH_IMPORT_MAX_BYTES:
+        raise HTTPException(413, f"Payload too large — maximum {GRAPH_IMPORT_MAX_BYTES // (1024*1024)} MB")
 
     name = (body.get("name") or "Imported Flow").strip()
     desc = body.get("description") or ""
@@ -124,7 +152,8 @@ async def api_graph_import(request: Request):
 @router.get("/api/graphs/by-slug/{slug}")
 def api_graph_by_slug(slug: str, request: Request):
     user = _check_admin(request)
-    g = get_graph_by_slug(slug)
+    workspace_id = _resolve_workspace(request, user)
+    g = get_graph_by_slug(slug, workspace_id=workspace_id)
     if not g:
         raise HTTPException(404, "Graph not found")
     if not _is_admin_or_owner(user) and user.get("id", 0) != 0:
@@ -135,9 +164,12 @@ def api_graph_by_slug(slug: str, request: Request):
 @router.get("/api/graphs/{graph_id}")
 def api_graph_get(graph_id: int, request: Request):
     user = _check_admin(request)
+    workspace_id = _resolve_workspace(request, user)
     g = get_graph(graph_id)
     if not g:
         raise HTTPException(404, "Graph not found")
+    if workspace_id is not None and g.get("workspace_id") != workspace_id:
+        raise HTTPException(403, "Access denied to this workspace's graph")
     if not _is_admin_or_owner(user) and user.get("id", 0) != 0:
         _check_flow_access(request, graph_id, "viewer")
     return _graph_with_data(g)
@@ -146,9 +178,12 @@ def api_graph_get(graph_id: int, request: Request):
 @router.put("/api/graphs/{graph_id}")
 def api_graph_update(graph_id: int, body: GraphUpdate, request: Request):
     user = _check_admin(request)
+    workspace_id = _resolve_workspace(request, user)
     g = get_graph(graph_id)
     if not g:
         raise HTTPException(404, "Graph not found")
+    if workspace_id is not None and g.get("workspace_id") != workspace_id:
+        raise HTTPException(403, "Access denied to this workspace's graph")
     if not _is_admin_or_owner(user) and user.get("id", 0) != 0:
         _check_flow_access(request, graph_id, "editor")
     update_graph(graph_id, name=body.name, description=body.description,
@@ -169,11 +204,14 @@ def api_graph_update(graph_id: int, body: GraphUpdate, request: Request):
 @router.delete("/api/graphs/{graph_id}")
 def api_graph_delete(graph_id: int, request: Request):
     user = _check_admin(request)
+    workspace_id = _resolve_workspace(request, user)
     if not _is_admin_or_owner(user):
         raise HTTPException(403, "Deleting flows requires admin or owner role")
     g = get_graph(graph_id)
     if not g:
         raise HTTPException(404, "Graph not found")
+    if workspace_id is not None and g.get("workspace_id") != workspace_id:
+        raise HTTPException(403, "Access denied to this workspace's graph")
     delete_graph(graph_id)
     log_audit(user["username"], "graph.delete", "graph", graph_id,
               {"name": g["name"]},
@@ -206,15 +244,18 @@ def api_test_node(graph_id: int, node_id: str, body: NodeTestBody, request: Requ
     an instant test invocation that populates the NodeIOPanel in the canvas.
     """
     user = _check_admin(request)
+    workspace_id = _resolve_workspace(request, user)
     g = get_graph(graph_id)
     if not g:
         raise HTTPException(404, "Graph not found")
+    if workspace_id is not None and g.get('workspace_id') != workspace_id:
+        raise HTTPException(403, "Graph not in your workspace")
     if not _is_admin_or_owner(user) and user.get("id", 0) != 0:
         _check_flow_access(request, graph_id, "runner")
 
     try:
         graph_data = json.loads(g.get('graph_json') or '{}')
-    except Exception:
+    except JSONDecodeError:
         graph_data = {}
 
     nodes_map = {n['id']: n for n in graph_data.get('nodes', [])}
@@ -229,8 +270,8 @@ def api_test_node(graph_id: int, node_id: str, body: NodeTestBody, request: Requ
 
     try:
         from app.core.db import load_all_credentials
-        creds = load_all_credentials()
-    except Exception:
+        creds = load_all_credentials(workspace_id=g.get("workspace_id"))
+    except (ImportError, psycopg2.Error):
         creds = {}
 
     from app.core.executor import run_one_node
@@ -258,12 +299,14 @@ async def api_graph_run(graph_id: int, request: Request):
     g = get_graph(graph_id)
     if not g:
         raise HTTPException(404, "Graph not found")
+    workspace_id = _resolve_workspace(request, user)
+    if workspace_id is not None and g.get('workspace_id') != workspace_id:
+        raise HTTPException(403, "Graph not in your workspace")
     if not _is_admin_or_owner(user) and user.get("id", 0) != 0:
         _check_flow_access(request, graph_id, "runner")
-    workspace_id = _resolve_workspace(request, user)
     try:
         body = await request.json()
-    except Exception:
+    except JSONDecodeError:
         body = {}
     payload        = (body or {}).get("payload") or body or {"source": "api"}
     start_node_id  = (body or {}).get("start_node_id")   # "run from this node" feature
@@ -273,22 +316,57 @@ async def api_graph_run(graph_id: int, request: Request):
     task_kwargs = {}
     if start_node_id:
         task_kwargs = {"start_node_id": start_node_id, "prior_context": prior_context or {}}
-    task = enqueue_graph.apply_async(
-        args=[graph_id, payload], kwargs=task_kwargs, priority=flow_priority
-    )
+
+    task_id = None
+    try:
+        task = enqueue_graph.apply_async(
+            args=[graph_id, payload], kwargs=task_kwargs, priority=flow_priority
+        )
+        task_id = task.id
+    except (OSError, RuntimeError, AttributeError) as exc:
+        log.warning("Celery unavailable (%s) — running graph inline", exc)
+        # Fall back to inline execution so the API still responds
+        import uuid
+        task_id = str(uuid.uuid4())
+        try:
+            from app.core.db import update_run, init_db
+            init_db()
+            update_run(task_id, "running")
+        except (OSError, RuntimeError) as init_err:
+            log.warning("Could not initialize inline run: %s", init_err)
+            raise HTTPException(500, f"Graph run failed: {init_err}")
+        try:
+            graph_data = json.loads(g.get('graph_json') or '{}')
+        except JSONDecodeError:
+            graph_data = {}
+        try:
+            result = run_graph(
+                graph_data,
+                payload,
+                workspace_id=g.get('workspace_id'),
+                start_node_id=start_node_id,
+                prior_context=prior_context,
+            )
+            update_run(task_id, "succeeded", result=result,
+                       traces=result.get('traces', []))
+        except (OSError, psycopg2.Error) as inline_err:
+            log.exception("Inline graph run failed")
+            update_run(task_id, "failed", result={"error": str(inline_err)})
+            raise HTTPException(500, f"Graph run failed: {inline_err}")
+
     try:
         from app.core.db import get_conn
         with get_conn() as conn:
             conn.cursor().execute(
                 "INSERT INTO runs(task_id, graph_id, status, initial_payload, workspace_id) VALUES(%s,%s,'queued',%s,%s)",
-                (task.id, graph_id, json.dumps(payload), workspace_id)
+                (task_id, graph_id, json.dumps(payload), workspace_id)
             )
-    except Exception as e:
+    except psycopg2.Error as e:
         log.warning(f"Could not pre-create run record: {e}")
     log_audit(user["username"], "graph.run", "graph", graph_id,
-              {"name": g["name"], "task_id": task.id},
+              {"name": g["name"], "task_id": task_id},
               request.client.host if request.client else None)
-    return {"queued": True, "task_id": task.id, "graph": g["name"]}
+    return {"queued": True, "task_id": task_id, "graph": g["name"]}
 
 
 # ── Graph versions ────────────────────────────────────────────────────────────
@@ -331,7 +409,7 @@ def api_get_graph_version(graph_id: int, version_id: int, request: Request):
         raise HTTPException(404, "Version not found")
     try:
         gd = json.loads(v.get('graph_json') or '{}')
-    except Exception:
+    except JSONDecodeError:
         gd = {}
     return {**{k: val for k, val in v.items() if k != 'graph_json'}, 'graph_data': gd}
 
@@ -350,7 +428,7 @@ def api_restore_version(graph_id: int, version_id: int, request: Request):
     update_graph(graph_id, graph_json=v['graph_json'])
     try:
         gd = json.loads(v['graph_json'])
-    except Exception:
+    except JSONDecodeError:
         gd = {}
     _sync_cron_triggers(graph_id, gd)
     save_graph_version(graph_id, g['name'], v['graph_json'], note=f"Restored from v{v['version']}")
@@ -502,12 +580,9 @@ def api_invite_to_flow(graph_id: int, body: InviteBody, request: Request):
     if actor_id == 0:
         actor_id = None
 
-    create_invite_token(token_hash, email, graph_id, body.role, actor_id, expires_at)
-
     app_url    = os.environ.get("APP_URL", "http://localhost").rstrip("/")
     invite_url = f"{app_url}/invite/accept?token={raw_token}"
 
-    # Send email if configured; otherwise just return the link in the response.
     sent = False
     if _is_configured():
         try:
@@ -520,8 +595,14 @@ def api_invite_to_flow(graph_id: int, body: InviteBody, request: Request):
                 invited_by=user["username"],
             )
             sent = True
-        except Exception as exc:
+        except (OSError, RuntimeError, AttributeError) as exc:
             log.warning("Could not send invite email: %s", exc)
+            raise HTTPException(500, "Failed to send invite email. Please try again.")
+
+    # Create the token only after confirmed email send (so a failed send cannot
+    # leave a permanently-unredeemable token), or when email is not configured
+    # (inviter must share the URL manually).
+    create_invite_token(token_hash, email, graph_id, body.role, actor_id, expires_at)
 
     log_audit(user["username"], "flow.invite", "graph", graph_id,
               {"email": email, "role": body.role, "sent": sent},
@@ -534,3 +615,4 @@ def api_invite_to_flow(graph_id: int, body: InviteBody, request: Request):
         "email_sent": sent,
         "expires_at": expires_at.isoformat(),
     }
+

@@ -26,25 +26,30 @@ import time
 import os
 import logging
 
+import psycopg2
+
 from app.nodes._utils import _render
+
+logger = logging.getLogger(__name__)
 
 NODE_TYPE = "action.wait_for_approval"
 LABEL     = "Wait for Approval"
-
-log = logging.getLogger(__name__)
 
 _POLL_INTERVAL = 10   # seconds between Redis checks
 _MAX_HOURS     = 168  # 7 days hard cap
 
 
 def run(config, inp, context, logger, creds=None, **kwargs):
+    logger.info("[action.wait_for_approval] Starting approval gate")
     approver_email = _render(config.get("approver_email", ""), context, creds).strip()
     if not approver_email:
         raise ValueError("approver_email is required")
 
     subject       = _render(config.get("subject",  "Action required: approval needed"), context, creds)
     message       = _render(config.get("message",  ""), context, creds)
-    timeout_hours = min(int(config.get("timeout_hours", 48) or 48), _MAX_HOURS)
+    try: timeout_hours = int(_render(str(config.get("timeout_hours", 48)), context, creds) or 48)
+    except (ValueError, TypeError): timeout_hours = 48
+    timeout_hours = min(timeout_hours, _MAX_HOURS)
 
     token       = uuid.uuid4().hex           # 32-char hex, no dashes
     task_id     = str(context.get("__task_id", "") or "")
@@ -56,19 +61,22 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     reject_url  = f"{app_url}/api/approvals/{token}/reject"
 
     # ── Persist approval record ──────────────────────────────────────────────
+    logger.info("Wait for Approval: approver=%s", approver_email)
     try:
         from app.core.db import get_conn
         with get_conn() as conn:
-            conn.cursor().execute(
-                """INSERT INTO approvals
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO approvals
                    (token, task_id, graph_name, node_id, approver_email,
                     subject, message, timeout_hours, status)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')""",
-                (token, task_id, graph_name, node_id,
-                 approver_email, subject, message, timeout_hours),
-            )
-    except Exception as exc:
-        log.warning("wait_for_approval: could not persist record — %s", exc)
+                    (token, task_id, graph_name, node_id,
+                     approver_email, subject, message, timeout_hours),
+                )
+    except psycopg2.Error as exc:
+        logger.warning("wait_for_approval: could not persist record — %s", exc)
+        raise RuntimeError(f"wait_for_approval: could not persist approval record: {exc}") from exc
 
     # ── Send email ───────────────────────────────────────────────────────────
     _send_approval_email(approver_email, subject, message, approve_url, reject_url,
@@ -90,19 +98,20 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         r = _redis.from_url(redis_url, socket_connect_timeout=5)
         # Mark as pending so the approve endpoint can validate the token
         r.setex(f"approval:{token}:pending", timeout_s + 3600, "1")
-    except Exception as exc:
+    except (OSError, RuntimeError) as exc:
         raise RuntimeError(f"Cannot connect to Redis for approval polling: {exc}") from exc
 
     while True:
         try:
             raw = r.get(redis_key)
-        except Exception:
+        except (ConnectionError, TimeoutError, OSError):
             raw = None
 
         if raw:
             decision = raw.decode()
             _update_status(token, decision)
             logger.info("Approval decision received: %s", decision)
+            logger.info("Wait for Approval: approval gate completed decision=%s", decision)
             return {
                 "approved":    decision == "approved",
                 "decision":    decision,
@@ -128,12 +137,13 @@ def _update_status(token: str, status: str) -> None:
     try:
         from app.core.db import get_conn
         with get_conn() as conn:
-            conn.cursor().execute(
-                "UPDATE approvals SET status=%s, decided_at=NOW() WHERE token=%s AND status='pending'",
-                (status, token),
-            )
-    except Exception as exc:
-        log.warning("wait_for_approval: could not update status — %s", exc)
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE approvals SET status=%s, decided_at=NOW() WHERE token=%s AND status='pending'",
+                    (status, token),
+                )
+    except psycopg2.Error as exc:
+        logger.warning("wait_for_approval: could not update status (token=%s, status=%s) — %s", token, status, exc)
 
 
 def _send_approval_email(
@@ -203,8 +213,8 @@ def _send_approval_email(
         from app.email import send_email
         ok = send_email(to, subject, html)
         if not ok:
-            log.warning("wait_for_approval: email not sent (not configured?). "
+            logger.warning("wait_for_approval: email not sent (not configured?). "
                         "Approve: %s  Reject: %s", approve_url, reject_url)
-    except Exception as exc:
-        log.warning("wait_for_approval: email send failed — %s. "
+    except (OSError, AttributeError) as exc:
+        logger.warning("wait_for_approval: email send failed — %s. "
                     "Approve: %s  Reject: %s", exc, approve_url, reject_url)

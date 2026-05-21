@@ -127,6 +127,6 @@ def seed_example_graphs() -> int:
                 create_graph(eg["name"], eg["description"], json.dumps(eg["graph_data"]))
                 log.info(f"Seeded example graph: {eg['name']}")
                 seeded += 1
-        except Exception as e:
+        except (ValueError, TypeError, OSError, RuntimeError) as e:
             log.warning(f"Could not seed '{eg['name']}': {e}")
     return seeded

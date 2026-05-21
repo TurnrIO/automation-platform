@@ -25,8 +25,11 @@ this), so there is no explicit migration step required.
 
 import os
 import base64
+import binascii
 import hashlib
 import logging
+
+from cryptography.fernet import InvalidToken
 
 log = logging.getLogger(__name__)
 
@@ -54,7 +57,7 @@ def _get_fernet():
                 key = base64.urlsafe_b64encode(decoded)
             else:
                 raise ValueError("not 32 bytes")
-        except Exception:
+        except (binascii.Error, ValueError):
             # Derive a 32-byte key from whatever string was provided
             key = base64.urlsafe_b64encode(
                 hashlib.sha256(raw.encode()).digest()
@@ -89,12 +92,17 @@ def decrypt(value: str) -> str:
     f = _get_fernet()
     try:
         return f.decrypt(value.encode()).decode()
-    except Exception:
+    except InvalidToken:
+        # Wrong key / tampered token — surface as ValueError so callers
+        # can distinguish this from structural errors (binascii etc.)
         log.error("Failed to decrypt credential value — SECRET_KEY may have changed")
         raise ValueError(
             "Credential decryption failed. If you changed SECRET_KEY after "
             "storing credentials you will need to re-enter them."
         )
+    except (binascii.Error, ValueError, TypeError):
+        log.error("Failed to decrypt credential value — data may be corrupted")
+        raise ValueError("Credential decryption failed. Data appears corrupted.")
 
 
 def encryption_configured() -> bool:

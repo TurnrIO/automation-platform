@@ -2,16 +2,20 @@
 
 Schema management is handled by Alembic (see migrations/).
 
-IMPORTANT — RealDictCursor:
+IMPORTANT - RealDictCursor:
   Most queries use cursor_factory=psycopg2.extras.RealDictCursor so rows are
   returned as dicts.  Always access columns by name: row["id"], not row[0].
   When you need a scalar (e.g. COUNT), use an alias and fetch by name:
       cur.execute("SELECT COUNT(*) AS n FROM runs")
       n = cur.fetchone()["n"]   # correct
-      n = cur.fetchone()[0]     # WRONG — raises TypeError with RealDictCursor
+      n = cur.fetchone()[0]     # WRONG - raises TypeError with RealDictCursor
 """
-import os, json, logging, threading
+import os
+import json
+import logging
+import threading
 from contextlib import contextmanager
+from json import JSONDecodeError
 import psycopg2
 import psycopg2.extras
 import psycopg2.pool
@@ -29,8 +33,8 @@ DSN = os.environ.get("DATABASE_URL", "postgresql://hiverunr:hiverunr@db:5432/hiv
 # via get_conn() and returned to the pool on context-manager exit.
 #
 # Tuning env vars (all optional, safe to leave at defaults):
-#   DB_POOL_MIN  — keep-alive connections (default 2)
-#   DB_POOL_MAX  — hard cap on concurrent connections (default 10)
+#   DB_POOL_MIN  - keep-alive connections (default 2)
+#   DB_POOL_MAX  - hard cap on concurrent connections (default 10)
 _pool_lock: threading.Lock = threading.Lock()
 _pool: psycopg2.pool.ThreadedConnectionPool | None = None
 
@@ -53,7 +57,7 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
 
 
 def get_pool_stats() -> dict:
-    """Return current pool utilisation — used by /api/system/status.
+    """Return current pool utilisation - used by /api/system/status.
 
     Returns an empty dict if the pool has not been initialised yet (i.e. no
     DB call has been made since startup).
@@ -86,7 +90,7 @@ def decode_json_value(value, fallback):
     if isinstance(value, str):
         try:
             return json.loads(value)
-        except Exception:
+        except JSONDecodeError:
             return fallback
     return value
 
@@ -119,13 +123,13 @@ def get_conn():
     try:
         yield conn
     except (psycopg2.OperationalError, psycopg2.InterfaceError):
-        # Broken connection — discard rather than returning to pool
+        # Broken connection - discard rather than returning to pool
         close_conn = True
         raise
     finally:
         try:
             pool.putconn(conn, close=close_conn)
-        except Exception:
+        except (AttributeError, ValueError, RuntimeError):
             pass
 
 psycopg2.extras.register_uuid()
@@ -134,7 +138,7 @@ def run_migrations() -> None:
     """Apply all pending Alembic migrations (runs `alembic upgrade head`).
 
     Called at startup from main.py, worker.py, and scheduler.py in place of
-    the legacy init_db().  Safe to call concurrently — Alembic's migration
+    the legacy init_db().  Safe to call concurrently - Alembic's migration
     lock prevents duplicate execution.
 
     Falls back to the legacy CREATE TABLE IF NOT EXISTS approach if alembic is
@@ -145,7 +149,7 @@ def run_migrations() -> None:
         from alembic.config import Config as _Cfg
         from alembic import command as _cmd
     except ImportError:
-        log.warning("alembic not installed — falling back to legacy init_db")
+        log.warning("alembic not installed - falling back to legacy init_db")
         _init_db_legacy()
         return
 
@@ -158,7 +162,7 @@ def run_migrations() -> None:
     ]
     _ini = next((p for p in _candidates if _os.path.isfile(p)), None)
     if _ini is None:
-        log.warning("alembic.ini not found — falling back to legacy init_db")
+        log.warning("alembic.ini not found - falling back to legacy init_db")
         _init_db_legacy()
         return
 
@@ -169,12 +173,12 @@ def run_migrations() -> None:
 
 
 def init_db():
-    """Legacy wrapper — calls run_migrations().  Kept for back-compat."""
+    """Legacy wrapper - calls run_migrations().  Kept for back-compat."""
     run_migrations()
 
 
 def _init_db_legacy():
-    """Original CREATE TABLE IF NOT EXISTS implementation — kept for reference only."""
+    """Original CREATE TABLE IF NOT EXISTS implementation - kept for reference only."""
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute("""
@@ -192,13 +196,14 @@ def _init_db_legacy():
             )
         """)
         # idempotent column additions for upgrades from any prior version
-        for col, defn in [
-            ("result",          "JSONB DEFAULT '{}'"),
-            ("traces",          "JSONB DEFAULT '[]'"),
-            ("initial_payload", "JSONB DEFAULT '{}'"),
-            ("created_at",      "TIMESTAMPTZ DEFAULT NOW()"),
-            ("updated_at",      "TIMESTAMPTZ DEFAULT NOW()"),
-        ]:
+        _COLUMNS = {
+            "result":          "JSONB DEFAULT '{}'",
+            "traces":          "JSONB DEFAULT '[]'",
+            "initial_payload": "JSONB DEFAULT '{}'",
+            "created_at":      "TIMESTAMPTZ DEFAULT NOW()",
+            "updated_at":      "TIMESTAMPTZ DEFAULT NOW()",
+        }
+        for col, defn in _COLUMNS.items():
             cur.execute(f"ALTER TABLE runs ADD COLUMN IF NOT EXISTS {col} {defn}")
 
         cur.execute("""
@@ -378,7 +383,9 @@ def list_runs(page: int = 1, page_size: int = 50,
             f"""SELECT r.*,
                     COALESCE(
                         g.name,
-                        INITCAP(REPLACE(REPLACE(r.workflow, '_', ' '), '.py', ''))
+                        INITCAP(REPLACE(REPLACE(REPLACE(REPLACE(
+                            r.workflow,
+                            '_', ' '), '__', ' '), '/', ' '), '.py', ''))
                     ) AS flow_name
                 {base_query}
                 ORDER BY r.id DESC
@@ -395,7 +402,19 @@ def list_runs(page: int = 1, page_size: int = 50,
 def get_run_by_task(task_id):
     with get_conn() as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT * FROM runs WHERE task_id=%s", (task_id,))
+        cur.execute(
+            """SELECT r.*,
+                    COALESCE(
+                        g.name,
+                        INITCAP(REPLACE(REPLACE(REPLACE(REPLACE(
+                            r.workflow,
+                            '_', ' '), '__', ' '), '/', ' '), '.py', ''))
+                    ) AS flow_name
+               FROM runs r
+               LEFT JOIN graph_workflows g ON r.graph_id = g.id
+               WHERE r.task_id=%s""",
+            (task_id,)
+        )
         row = cur.fetchone()
         if not row:
             return None
@@ -430,21 +449,31 @@ def delete_run(run_id):
     with get_conn() as conn:
         conn.cursor().execute("DELETE FROM runs WHERE id=%s", (run_id,))
 
-def bulk_delete_runs(ids: list) -> int:
+def bulk_delete_runs(ids: list, workspace_id: int | None = None) -> int:
     """Delete multiple runs by ID list. Returns the number actually deleted."""
     if not ids:
         return 0
     with get_conn() as conn:
         cur = conn.cursor()
-        cur.execute(
-            "DELETE FROM runs WHERE id = ANY(%s)",
-            (list(ids),),
-        )
+        if workspace_id is not None:
+            cur.execute(
+                "DELETE FROM runs WHERE id = ANY(%s) AND workspace_id = %s",
+                (list(ids), workspace_id),
+            )
+        else:
+            cur.execute(
+                "DELETE FROM runs WHERE id = ANY(%s)",
+                (list(ids),),
+            )
         return cur.rowcount
 
-def clear_runs():
-    with get_conn() as conn:
-        conn.cursor().execute("DELETE FROM runs")
+def clear_runs(workspace_id: int | None = None):
+    if workspace_id is not None:
+        with get_conn() as conn:
+            conn.cursor().execute("DELETE FROM runs WHERE workspace_id = %s", (workspace_id,))
+    else:
+        with get_conn() as conn:
+            conn.cursor().execute("DELETE FROM runs")
 
 # ── workflows ─────────────────────────────────────────────────────────────
 def list_workflows():
@@ -516,21 +545,42 @@ def get_schedule(sid):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def create_schedule(name, workflow=None, graph_id=None, cron=None, payload=None, timezone="UTC", run_at=None, workspace_id: int | None = None):
+def create_schedule(
+    name,
+    workflow=None,
+    graph_id=None,
+    cron=None,
+    payload=None,
+    timezone="UTC",
+    run_at=None,
+    workspace_id: int | None = None,
+):
     with get_conn() as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(
             "INSERT INTO schedules(name,workflow,graph_id,cron,payload,timezone,run_at,workspace_id) VALUES(%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-            (name, workflow, graph_id, cron, json.dumps(payload or {}), timezone, run_at, workspace_id)
+            (name, workflow, graph_id, cron, json.dumps(payload or {}), timezone, run_at, workspace_id),
         )
         return dict(cur.fetchone())
 
-def update_schedule(sid, name, workflow, graph_id, cron, payload, timezone, run_at=None):
+def update_schedule(
+    sid,
+    name,
+    workflow,
+    graph_id,
+    cron,
+    payload,
+    timezone,
+    run_at=None,
+    workspace_id: int | None = None,
+):
     with get_conn() as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(
-            "UPDATE schedules SET name=%s,workflow=%s,graph_id=%s,cron=%s,payload=%s,timezone=%s,run_at=%s WHERE id=%s RETURNING *",
-            (name, workflow, graph_id, cron, json.dumps(payload or {}), timezone, run_at, sid)
+            "UPDATE schedules SET "
+            "name=%s,workspace=%s,graph_id=%s,cron=%s,payload=%s,timezone=%s,run_at=%s,workspace_id=%s "
+            "WHERE id=%s RETURNING *",
+            (name, workflow, graph_id, cron, json.dumps(payload or {}), timezone, run_at, workspace_id, sid),
         )
         row = cur.fetchone()
         return dict(row) if row else None
@@ -561,17 +611,33 @@ def sync_graph_schedules(graph_id: int, cron_nodes: list):
             )
 
 # ── graph_workflows ───────────────────────────────────────────────────────
-def list_graphs(workspace_id: int | None = None):
+def list_graphs(workspace_id: int | None = None, page: int = 1, page_size: int = 50):
+    """List graphs for a workspace with pagination. page is 1-indexed."""
+    offset = (max(1, page) - 1) * min(max(1, page_size), 100)
+    limit = min(max(1, page_size), 100)
     with get_conn() as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         if workspace_id is not None:
             cur.execute(
-                "SELECT * FROM graph_workflows WHERE workspace_id=%s ORDER BY id",
-                (workspace_id,),
+                "SELECT * FROM graph_workflows WHERE workspace_id=%s ORDER BY id LIMIT %s OFFSET %s",
+                (workspace_id, limit, offset),
             )
         else:
-            cur.execute("SELECT * FROM graph_workflows ORDER BY id")
-        return [dict(r) for r in cur.fetchall()]
+            cur.execute("SELECT * FROM graph_workflows ORDER BY id LIMIT %s OFFSET %s",
+                        (limit, offset))
+        return [dict(r) for r in cur.fetchall()]  # fetchall for small page sizes; offset/limit in query
+
+
+def count_graphs(workspace_id: int | None = None) -> int:
+    """Return total graph count for a workspace (for pagination metadata)."""
+    with get_conn() as conn:
+        cur = conn.cursor()
+        if workspace_id is not None:
+            cur.execute("SELECT COUNT(*) FROM graph_workflows WHERE workspace_id=%s",
+                        (workspace_id,))
+        else:
+            cur.execute("SELECT COUNT(*) FROM graph_workflows")
+        return cur.fetchone()[0] or 0
 
 def create_graph(name, description, graph_json, workspace_id: int | None = None, tags: list | None = None):
     import secrets as _sec
@@ -585,7 +651,7 @@ def create_graph(name, description, graph_json, workspace_id: int | None = None,
                 break
         cur.execute(
             "INSERT INTO graph_workflows(name,description,graph_json,slug,workspace_id,tags) VALUES(%s,%s,%s,%s,%s,%s) RETURNING *",
-            (name, description, graph_json, slug, workspace_id, tags or [])
+            (name, description, graph_json, slug, workspace_id, tags or []),
         )
         return dict(cur.fetchone())
 
@@ -596,10 +662,13 @@ def get_graph(graph_id):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def get_graph_by_slug(slug):
+def get_graph_by_slug(slug, workspace_id=None):
     with get_conn() as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT * FROM graph_workflows WHERE slug=%s", (slug,))
+        if workspace_id is not None:
+            cur.execute("SELECT * FROM graph_workflows WHERE slug=%s AND workspace_id=%s", (slug, workspace_id))
+        else:
+            cur.execute("SELECT * FROM graph_workflows WHERE slug=%s", (slug,))
         row = cur.fetchone()
         return dict(row) if row else None
 
@@ -617,16 +686,53 @@ def get_graph_by_token(token):
         row = cur.fetchone()
         return dict(row) if row else None
 
-def update_graph(graph_id, name=None, description=None, graph_json=None, enabled=None, tags=None, priority=None, pinned=None):
+def update_graph(
+    graph_id,
+    name=None,
+    description=None,
+    graph_json=None,
+    enabled=None,
+    tags=None,
+    priority=None,
+    pinned=None,
+):
     with get_conn() as conn:
         cur = conn.cursor()
-        if name        is not None: cur.execute("UPDATE graph_workflows SET name=%s,        updated_at=NOW() WHERE id=%s", (name,        graph_id))
-        if description is not None: cur.execute("UPDATE graph_workflows SET description=%s, updated_at=NOW() WHERE id=%s", (description, graph_id))
-        if graph_json  is not None: cur.execute("UPDATE graph_workflows SET graph_json=%s,  updated_at=NOW() WHERE id=%s", (graph_json,  graph_id))
-        if enabled     is not None: cur.execute("UPDATE graph_workflows SET enabled=%s,      updated_at=NOW() WHERE id=%s", (enabled,     graph_id))
-        if tags        is not None: cur.execute("UPDATE graph_workflows SET tags=%s,         updated_at=NOW() WHERE id=%s", (tags,        graph_id))
-        if priority    is not None: cur.execute("UPDATE graph_workflows SET priority=%s,     updated_at=NOW() WHERE id=%s", (int(priority), graph_id))
-        if pinned      is not None: cur.execute("UPDATE graph_workflows SET pinned=%s,       updated_at=NOW() WHERE id=%s", (bool(pinned), graph_id))
+        if name is not None:
+            cur.execute(
+                "UPDATE graph_workflows SET name=%s, updated_at=NOW() WHERE id=%s",
+                (name, graph_id),
+            )
+        if description is not None:
+            cur.execute(
+                "UPDATE graph_workflows SET description=%s, updated_at=NOW() WHERE id=%s",
+                (description, graph_id),
+            )
+        if graph_json is not None:
+            cur.execute(
+                "UPDATE graph_workflows SET graph_json=%s, updated_at=NOW() WHERE id=%s",
+                (graph_json, graph_id),
+            )
+        if enabled is not None:
+            cur.execute(
+                "UPDATE graph_workflows SET enabled=%s, updated_at=NOW() WHERE id=%s",
+                (enabled, graph_id),
+            )
+        if tags is not None:
+            cur.execute(
+                "UPDATE graph_workflows SET tags=%s, updated_at=NOW() WHERE id=%s",
+                (tags, graph_id),
+            )
+        if priority is not None:
+            cur.execute(
+                "UPDATE graph_workflows SET priority=%s, updated_at=NOW() WHERE id=%s",
+                (int(priority), graph_id),
+            )
+        if pinned is not None:
+            cur.execute(
+                "UPDATE graph_workflows SET pinned=%s, updated_at=NOW() WHERE id=%s",
+                (bool(pinned), graph_id),
+            )
 
 def duplicate_graph(graph_id: int) -> dict:
     """Clone a graph, appending ' (copy)' to the name and generating a fresh slug."""
@@ -635,7 +741,7 @@ def duplicate_graph(graph_id: int) -> dict:
         raise ValueError(f"Graph {graph_id} not found")
     import re as _re
     base = _re.sub(r'\s*\(copy(?:\s+\d+)?\)\s*$', '', src['name']).strip()
-    # Find a unique name: "Name (copy)", "Name (copy 2)", …
+    # Find a unique name: "Name (copy)", "Name (copy 2)", ...
     with get_conn() as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         candidate = f"{base} (copy)"
@@ -701,7 +807,15 @@ def load_all_credentials(workspace_id: int | None = None):
         return {r['name']: decrypt(r['secret']) for r in cur.fetchall()}
 
 def upsert_credential(name, type_, secret, note="", workspace_id: int | None = None):
-    from app.crypto import encrypt
+    if workspace_id is None:
+        raise ValueError("workspace_id is required - cannot create credentials without a workspace")
+    from app.crypto import encrypt, encryption_configured
+    if not encryption_configured():
+        raise RuntimeError(
+            "SECRET_KEY is not set - cannot create or update credentials. "
+            "Set SECRET_KEY in .env before storing credentials. "
+            "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+        )
     with get_conn() as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
@@ -714,10 +828,23 @@ def upsert_credential(name, type_, secret, note="", workspace_id: int | None = N
         """, (name, type_, encrypt(secret), note, workspace_id))
         return dict(cur.fetchone())
 
-def update_credential(cred_id, type_, secret, note):
-    from app.crypto import encrypt
+def update_credential(cred_id, type_, secret, note, workspace_id: int | None = None):
+    if workspace_id is None:
+        raise ValueError("workspace_id is required - cannot update credentials without a workspace")
+    from app.crypto import encrypt, encryption_configured
+    if not encryption_configured():
+        raise RuntimeError(
+            "SECRET_KEY is not set - cannot create or update credentials. "
+            "Set SECRET_KEY in .env before storing credentials. "
+            "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+        )
     with get_conn() as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        if workspace_id is not None:
+            # Verify ownership before mutating
+            cur.execute("SELECT id FROM credentials WHERE id=%s AND workspace_id=%s", (cred_id, workspace_id))
+            if cur.fetchone() is None:
+                return None  # Credential not found in this workspace
         if secret:
             cur.execute(
                 "UPDATE credentials SET type=%s, secret=%s, note=%s, updated_at=NOW() WHERE id=%s RETURNING id, name, type, note, created_at, updated_at",
@@ -730,9 +857,12 @@ def update_credential(cred_id, type_, secret, note):
             )
         return dict(cur.fetchone())
 
-def delete_credential(cred_id):
+def delete_credential(cred_id, workspace_id: int | None = None):
+    if workspace_id is None:
+        raise ValueError("workspace_id is required - cannot delete credentials without a workspace")
     with get_conn() as conn:
-        conn.cursor().execute("DELETE FROM credentials WHERE id=%s", (cred_id,))
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("DELETE FROM credentials WHERE id=%s AND workspace_id=%s RETURNING id", (cred_id, workspace_id))
 
 # ── graph_versions ────────────────────────────────────────────────────────
 def list_graph_versions(graph_id):
@@ -779,7 +909,7 @@ def get_run_metrics(workspace_id: int | None = None):
     with get_conn() as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        # 30-day summary — alias runs as r so ws_filter can use r.workspace_id
+        # 30-day summary - alias runs as r so ws_filter can use r.workspace_id
         cur.execute(f"""
             SELECT
                 COUNT(*)                                                           AS total,
@@ -833,7 +963,7 @@ def get_run_metrics(workspace_id: int | None = None):
         cur.execute(f"""
             SELECT r.id, r.status,
                    r.created_at::text AS created_at,
-                   COALESCE(g.name, r.workflow, 'unknown') AS flow_name,
+                   COALESCE(g.name, INITCAP(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(r.workflow, '_', ' '), '/', ' '), '.py', ''), '([a-z])([A-Z])', '\\1 \\2', 'g'), '([a-z])([A-Z])', '\\1 \\2', 'g'))) , 'unknown') AS flow_name,
                    GREATEST(ROUND(EXTRACT(EPOCH FROM (r.updated_at - r.created_at))*1000), 0)::int AS duration_ms
             FROM runs r
             LEFT JOIN graph_workflows g ON r.graph_id = g.id
@@ -869,7 +999,7 @@ def get_flow_analytics(days: int = 30, workspace_id: int | None = None) -> list:
         cur.execute("""
             SELECT
                 r.graph_id,
-                COALESCE(g.name, 'legacy:' || r.workflow, 'unknown') AS flow_name,
+                COALESCE(g.name, 'legacy: ' || INITCAP(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(r.workflow, '_', ' '), '/', ' '), '.py', ''), '([a-z])([A-Z])', '\\1 \\2', 'g'), '([a-z])([A-Z])', '\\1 \\2', 'g'))) , 'unknown') AS flow_name,
                 COUNT(*)                                               AS total,
                 SUM(CASE WHEN r.status = 'succeeded' THEN 1 ELSE 0 END) AS succeeded,
                 SUM(CASE WHEN r.status = 'failed'    THEN 1 ELSE 0 END) AS failed,
@@ -1096,9 +1226,15 @@ def touch_api_token(token_hash: str):
             "UPDATE api_tokens SET last_used=NOW() WHERE token_hash=%s", (token_hash,)
         )
 
-def delete_api_token(token_id: int):
+def delete_api_token(token_id: int, workspace_id: int | None = None):
     with get_conn() as conn:
-        conn.cursor().execute("DELETE FROM api_tokens WHERE id=%s", (token_id,))
+        if workspace_id is not None:
+            conn.cursor().execute(
+                "DELETE FROM api_tokens WHERE id=%s AND workspace_id=%s",
+                (token_id, workspace_id),
+            )
+        else:
+            conn.cursor().execute("DELETE FROM api_tokens WHERE id=%s", (token_id,))
 
 # ── Graph alert config ─────────────────────────────────────────────────────────
 def get_graph_alerts(graph_id: int):
@@ -1199,7 +1335,7 @@ def consume_password_reset_token(token_hash: str):
         )
 
 # ── App settings (KV store) ────────────────────────────────────────────────────
-# NOTE: Use get_setting / set_setting for any new scalar config value —
+# NOTE: Use get_setting / set_setting for any new scalar config value -
 # do NOT add new columns to app_settings or other tables for simple on/off flags.
 # All values are strings; cast to int/bool at the call site.
 def get_setting(key: str, default: str = "") -> str:
@@ -1244,26 +1380,43 @@ def set_retention_policy(enabled: bool, mode: str, count: int, days: int) -> Non
     set_setting("retention_count",   str(max(1, int(count))))
     set_setting("retention_days",    str(max(1, int(days))))
 
-def trim_runs_by_count(keep: int) -> int:
-    """Delete all but the `keep` most recent runs. Returns deleted count."""
+def trim_runs_by_count(keep: int, workspace_id: int | None = None) -> int:
+    """Delete all but the `keep` most recent runs per-workspace (or global if workspace_id is None). Returns deleted count."""
     with get_conn() as conn:
         cur = conn.cursor()
-        cur.execute("""
-            DELETE FROM runs
-            WHERE id NOT IN (
-                SELECT id FROM runs ORDER BY id DESC LIMIT %s
-            )
-        """, (max(1, keep),))
+        if workspace_id is not None:
+            cur.execute("""
+                DELETE FROM runs
+                WHERE workspace_id = %s
+                  AND id NOT IN (
+                      SELECT id FROM runs
+                      WHERE workspace_id = %s
+                      ORDER BY id DESC LIMIT %s
+                  )
+            """, (workspace_id, workspace_id, max(1, keep)))
+        else:
+            cur.execute("""
+                DELETE FROM runs
+                WHERE id NOT IN (
+                    SELECT id FROM runs ORDER BY id DESC LIMIT %s
+                )
+            """, (max(1, keep),))
         return cur.rowcount
 
-def trim_runs_by_age(days: int) -> int:
-    """Delete runs older than `days` days. Returns deleted count."""
+def trim_runs_by_age(days: int, workspace_id: int | None = None) -> int:
+    """Delete runs older than `days` days per-workspace (or global if workspace_id is None). Returns deleted count."""
     with get_conn() as conn:
         cur = conn.cursor()
-        cur.execute(
-            "DELETE FROM runs WHERE created_at < NOW() - (%s || ' days')::INTERVAL",
-            (str(max(1, days)),)
-        )
+        if workspace_id is not None:
+            cur.execute(
+                "DELETE FROM runs WHERE workspace_id = %s AND created_at < NOW() - (%s || ' days')::INTERVAL",
+                (workspace_id, str(max(1, days)))
+            )
+        else:
+            cur.execute(
+                "DELETE FROM runs WHERE created_at < NOW() - (%s || ' days')::INTERVAL",
+                (str(max(1, days)),)
+            )
         return cur.rowcount
 
 
@@ -1276,7 +1429,7 @@ def log_audit(
     detail: dict | None = None,
     ip: str | None = None,
 ) -> None:
-    """Append a single audit event.  Fire-and-forget — never raises."""
+    """Append a single audit event.  Fire-and-forget - never raises."""
     try:
         with get_conn() as conn:
             conn.cursor().execute(
@@ -1293,7 +1446,7 @@ def log_audit(
                     ip,
                 ),
             )
-    except Exception:
+    except (psycopg2.Error, IOError, OSError):
         log.exception("audit_log write failed (non-fatal)")
 
 

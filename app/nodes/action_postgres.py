@@ -25,11 +25,61 @@ Output shape
   "affected": N,                       — rowcount for INSERT/UPDATE/DELETE
 }
 """
+import ipaddress
 import json
+import socket
+from json import JSONDecodeError
+import psycopg2
 import logging
+logger = logging.getLogger(__name__)
 from ._utils import _render, _resolve_cred_raw
 
-log = logging.getLogger(__name__)
+# ── SSRF protection ───────────────────────────────────────────────────────────
+_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("ff00::/8"),
+]
+_IMDS_IP = ipaddress.ip_address("169.254.169.254")
+
+
+def _is_internal_ip(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        if ip == _IMDS_IP:
+            return True
+        return any(ip in net for net in _BLOCKED_NETWORKS)
+    except ValueError:
+        return True
+
+
+def _check_ssrf(host: str, port: int) -> None:
+    """Block connections to internal/reserved IPs via DNS resolution."""
+    try:
+        infos = socket.getaddrinfo(host, port)
+        for (_, _, _, _, sockaddr) in infos:
+            if _is_internal_ip(sockaddr[0]):
+                raise ValueError(f"SSRF blocked: resolved to internal IP {sockaddr[0]}")
+    except socket.gaierror:
+        raise ValueError(f"SSRF blocked: could not resolve hostname '{host}'")
+
+
+def _dsn_host(dsn: str) -> str | None:
+    """Extract hostname from a DSN connection string."""
+    if not dsn or dsn.startswith("sqlite"):
+        return None
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(dsn)
+        return parsed.hostname or None
+    except (AttributeError, TypeError):
+        return None
 
 NODE_TYPE = "action.postgres"
 LABEL     = "SQL Query"
@@ -131,7 +181,7 @@ def _normalize_params(raw: str, context: dict, creds: dict):
         if isinstance(val, dict):
             return val   # named params (psycopg2 supports %(name)s)
         return [val]
-    except (json.JSONDecodeError, TypeError):
+    except (JSONDecodeError, TypeError):
         return []
 
 
@@ -158,13 +208,14 @@ def _rows_to_dicts(cursor, driver: str):
 
 def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) -> dict:
     creds = creds or {}
+    logger.info("[action.postgres] firing node")
 
     # Resolve credential
     cred_name = _render(config.get("credential", ""), context, creds)
     raw_cred  = _resolve_cred_raw(cred_name, creds)
     try:
         cred = json.loads(raw_cred) if raw_cred else {}
-    except (json.JSONDecodeError, TypeError):
+    except (JSONDecodeError, TypeError):
         cred = {}
 
     # Allow DSN to be set directly in config as a fallback
@@ -185,9 +236,19 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
         raise ValueError("action.postgres: 'query' is required")
 
     params      = _normalize_params(config.get("params", ""), context, creds)
-    row_limit   = int(_render(str(config.get("row_limit", "1000")), context, creds) or 1000)
+    try: row_limit = int(_render(str(config.get("row_limit", "1000")), context, creds))
+    except (ValueError, TypeError): row_limit = 1000
 
-    logger(f"[action.postgres] driver={driver} query={query[:80]}{'…' if len(query)>80 else ''}")
+    logger.info("[action.postgres] driver=%s query=%s", driver, query[:80] + ('…' if len(query)>80 else ''))
+
+    # ── SSRF: resolve hostname before connecting ───────────────────────────
+    if driver in ("postgresql", "mysql") and dsn:
+        _host = _dsn_host(dsn)
+        if _host:
+            _check_ssrf(_host, connect_kwargs.get("port", 5432 if driver == "postgresql" else 3306))
+    elif driver in ("postgresql", "mysql") and not dsn:
+        _check_ssrf(connect_kwargs.get("host", "localhost"),
+                    connect_kwargs.get("port", 5432 if driver == "postgresql" else 3306))
 
     conn = _connect(dsn, driver, connect_kwargs)
     db_conn, placeholder = conn
@@ -214,12 +275,12 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
             columns, rows = _rows_to_dicts(cur, driver)
             if row_limit and len(rows) > row_limit:
                 rows = rows[:row_limit]
-                logger(f"[action.postgres] result truncated to {row_limit} rows")
+                logger.info("[action.postgres] result truncated to %s rows", row_limit)
 
         # Commit for write statements (psycopg2/pymysql are not autocommit by default)
         db_conn.commit()
 
-        logger(f"[action.postgres] rows={len(rows)} affected={affected}")
+        logger.info("[action.postgres] rows=%s affected=%s", len(rows), affected)
         return {
             "rows":     rows,
             "count":    len(rows),
@@ -227,14 +288,15 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
             "row":      rows[0] if rows else {},
             "affected": affected,
         }
-    except Exception:
+    except psycopg2.Error as exc:
         try:
             db_conn.rollback()
-        except Exception:
+        except (AttributeError, TypeError, RuntimeError):
             pass
-        raise
+        raise RuntimeError(f"action.postgres: query failed — {exc}") from exc
     finally:
-        try:
-            db_conn.close()
-        except Exception:
-            pass
+        if db_conn is not None:
+            try:
+                db_conn.close()
+            except (AttributeError, TypeError, RuntimeError):
+                pass

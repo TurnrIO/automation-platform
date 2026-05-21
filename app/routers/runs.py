@@ -1,8 +1,10 @@
 """Runs router — list, delete, trim, replay, stream."""
 import json
+from json import JSONDecodeError
 import logging
 import os
 import time as _time
+import redis as _redis
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -18,6 +20,7 @@ from app.core.db import (
     decode_json_value,
     log_audit,
 )
+from app.core.executor import run_graph
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -55,16 +58,18 @@ def _sync_stuck_runs():
                     update_run(row['task_id'], 'cancelled', result={'cancelled_by': 'celery_revoke'})
                 elif state == 'PENDING':
                     if age > 120:
+                        log.info("[_sync_stuck_runs] Task %s auto-killed after 120s in PENDING state (workflow=%s, age=%.0fs)",
+                                 row['task_id'], row.get('workflow'), age)
                         update_run(row['task_id'], 'failed',
                                    result={'error': 'Task was lost — worker may have been restarting. Please re-run.'})
                     elif row['workflow']:
                         from app.worker import enqueue_script as _enqueue_script
                         _enqueue_script.apply_async(args=[row['workflow'], {}], task_id=row['task_id'])
                         log.info(f"Re-dispatched lost task {row['task_id']} for {row['workflow']}")
-            except Exception:
-                pass
-    except Exception:
-        pass
+            except (AttributeError, TypeError, RuntimeError, KeyError, OSError, Exception):
+                log.exception("[_sync_stuck_runs] Celery state lookup failed for task %s", row['task_id'])
+    except (AttributeError, TypeError, KeyError, RuntimeError, OSError, Exception):
+        log.exception("[_sync_stuck_runs] Stuck-run reconciliation failed")
 
 
 @router.get("/api/runs")
@@ -94,7 +99,18 @@ def api_run_by_task(task_id: str, request: Request):
 
 @router.delete("/api/runs/{run_id}")
 def api_delete_run(run_id: int, request: Request):
-    user = _require_manage_scope(request)
+    user = _check_admin(request)
+    workspace_id = _resolve_workspace(request, user)
+    from app.core.db import get_conn
+    import psycopg2.extras
+    with get_conn() as conn:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT workspace_id FROM runs WHERE id=%s", (run_id,))
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, f"Run {run_id} not found")
+    if workspace_id is not None and row.get("workspace_id") != workspace_id:
+        raise HTTPException(403, "Run belongs to a different workspace")
     delete_run(run_id)
     log_audit(user["username"], "run.delete", "run", run_id, None,
               request.client.host if request.client else None)
@@ -104,8 +120,10 @@ def api_delete_run(run_id: int, request: Request):
 @router.delete("/api/runs")
 def api_clear_runs(request: Request):
     user = _require_manage_scope(request)
-    clear_runs()
-    log_audit(user["username"], "run.clear_all", None, None, None,
+    workspace_id = _resolve_workspace(request, user)
+    clear_runs(workspace_id=workspace_id)
+    log_audit(user["username"], "run.clear_all", None, None,
+              {"workspace_id": workspace_id},
               request.client.host if request.client else None)
     return {"cleared": True}
 
@@ -120,7 +138,8 @@ def api_bulk_delete_runs(body: BulkDeleteBody, request: Request):
     user = _require_manage_scope(request)
     if not body.ids:
         return {"deleted": 0}
-    deleted = bulk_delete_runs(body.ids)
+    workspace_id = _resolve_workspace(request, user)
+    deleted = bulk_delete_runs(body.ids, workspace_id=workspace_id)
     log_audit(user["username"], "run.bulk_delete", None, None,
               {"count": deleted, "ids": body.ids[:20]},  # log first 20 IDs max
               request.client.host if request.client else None)
@@ -140,16 +159,17 @@ def api_trim_runs(body: TrimRunsBody, request: Request):
     - `days`: delete runs older than N days (takes precedence over `keep` when set).
     """
     user = _require_manage_scope(request)
+    workspace_id = _resolve_workspace(request, user)
     if body.days is not None:
-        deleted = trim_runs_by_age(body.days)
+        deleted = trim_runs_by_age(body.days, workspace_id=workspace_id)
         log_audit(user["username"], "run.trim", None, None,
-                  {"mode": "age", "older_than_days": body.days, "deleted": deleted},
+                  {"mode": "age", "older_than_days": body.days, "deleted": deleted, "workspace_id": workspace_id},
                   request.client.host if request.client else None)
         return {"deleted": deleted, "mode": "age", "older_than_days": body.days}
     else:
-        deleted = trim_runs_by_count(body.keep)
+        deleted = trim_runs_by_count(body.keep, workspace_id=workspace_id)
         log_audit(user["username"], "run.trim", None, None,
-                  {"mode": "count", "kept": body.keep, "deleted": deleted},
+                  {"mode": "count", "kept": body.keep, "deleted": deleted, "workspace_id": workspace_id},
                   request.client.host if request.client else None)
         return {"deleted": deleted, "mode": "count", "kept": body.keep}
 
@@ -193,7 +213,6 @@ def api_get_ratelimit(request: Request):
     # Attach live per-token counters from Redis
     counters = []
     try:
-        import redis as _redis
         r = _redis.from_url(os.environ.get("REDIS_URL", "redis://redis:6379/0"))
         keys = r.keys("wh_rate:*")
         for k in sorted(keys)[:50]:  # cap at 50 entries
@@ -201,8 +220,10 @@ def api_get_ratelimit(request: Request):
             count = int(r.get(k) or 0)
             ttl   = r.ttl(k)
             counters.append({"token": token, "count": count, "ttl_seconds": ttl})
-    except Exception:
-        pass
+    except (AttributeError, KeyError, OSError, RuntimeError) as exc:
+        log.warning("Redis unavailable for rate-limit counters: %s", exc)
+    except _redis.exceptions.RedisError as exc:
+        log.warning("Redis unavailable for rate-limit counters: %s", exc)
     return {**policy, "counters": counters}
 
 
@@ -235,14 +256,17 @@ def api_cancel_run(run_id: int, request: Request):
     DB row if the run is still in a cancellable state.
     """
     user = _require_run_scope(request)
+    workspace_id = _resolve_workspace(request, user)
     from app.core.db import get_conn
     import psycopg2.extras
     with get_conn() as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT task_id, status FROM runs WHERE id=%s", (run_id,))
+        cur.execute("SELECT task_id, status, workspace_id FROM runs WHERE id=%s", (run_id,))
         row = cur.fetchone()
     if not row:
         raise HTTPException(404, f"Run {run_id} not found")
+    if workspace_id is not None and row.get("workspace_id") != workspace_id:
+        raise HTTPException(403, "Run belongs to a different workspace")
     if row["status"] not in ("queued", "running"):
         raise HTTPException(400, f"Run is already {row['status']} — cannot cancel")
     task_id = row["task_id"]
@@ -250,7 +274,7 @@ def api_cancel_run(run_id: int, request: Request):
         from celery.result import AsyncResult
         from app.worker import app as _celery_app
         AsyncResult(task_id, app=_celery_app).revoke(terminate=True, signal="SIGTERM")
-    except Exception as exc:
+    except (AttributeError, RuntimeError, OSError) as exc:
         log.warning("Could not revoke Celery task %s: %s", task_id, exc)
     update_run(task_id, "cancelled", result={"cancelled_by": "user"})
     log_audit(user["username"], "run.cancel", "run", run_id,
@@ -266,7 +290,18 @@ class _NoteBody(BaseModel):
 @router.put("/api/runs/{run_id}/note")
 def api_set_run_note(run_id: int, body: _NoteBody, request: Request):
     """Add or update a freeform text note on a run. Pass null/empty to clear."""
-    _require_manage_scope(request)
+    user = _check_admin(request)
+    workspace_id = _resolve_workspace(request, user)
+    from app.core.db import get_conn
+    import psycopg2.extras
+    with get_conn() as conn:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT workspace_id FROM runs WHERE id=%s", (run_id,))
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, f"Run {run_id} not found")
+    if workspace_id is not None and row.get("workspace_id") != workspace_id:
+        raise HTTPException(403, "Run belongs to a different workspace")
     set_run_note(run_id, body.note)
     return {"ok": True, "run_id": run_id, "note": body.note or None}
 
@@ -311,7 +346,7 @@ def api_run_queue(request: Request):
             "workers":      workers,
             "worker_count": len(workers),
         }
-    except Exception as exc:
+    except (AttributeError, RuntimeError, TypeError) as exc:
         log.warning("Queue inspect failed: %s", exc)
         return {"ok": False, "error": str(exc), "active": 0, "reserved": 0, "scheduled": 0, "total_queued": 0, "workers": [], "worker_count": 0}
 
@@ -323,15 +358,18 @@ class _ReplayBody(BaseModel):
 @router.get("/api/runs/{run_id}/payload")
 def api_get_run_payload(run_id: int, request: Request):
     """Return the initial_payload stored for a run (used to pre-fill replay modal)."""
-    _require_run_scope(request)
+    user = _require_run_scope(request)
+    workspace_id = _resolve_workspace(request, user)
     from app.core.db import get_conn
     import psycopg2.extras
     with get_conn() as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT initial_payload FROM runs WHERE id=%s", (run_id,))
+        cur.execute("SELECT initial_payload, workspace_id FROM runs WHERE id=%s", (run_id,))
         row = cur.fetchone()
     if not row:
         raise HTTPException(404, f"Run {run_id} not found")
+    if workspace_id is not None and row.get("workspace_id") != workspace_id:
+        raise HTTPException(403, "Run belongs to a different workspace")
     payload = decode_json_value(row["initial_payload"], {})
     return {"run_id": run_id, "payload": payload}
 
@@ -344,15 +382,18 @@ def api_replay_run(run_id: int, request: Request, body: _ReplayBody = None):
     allowing callers to tweak the trigger data before re-running.
     """
     user = _require_run_scope(request)
+    workspace_id = _resolve_workspace(request, user)
     from app.core.db import get_conn
     import psycopg2.extras
     from app.worker import enqueue_graph
     with get_conn() as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT graph_id, initial_payload FROM runs WHERE id=%s", (run_id,))
+        cur.execute("SELECT graph_id, initial_payload, workspace_id FROM runs WHERE id=%s", (run_id,))
         row = cur.fetchone()
     if not row:
         raise HTTPException(404, f"Run {run_id} not found")
+    if workspace_id is not None and row.get("workspace_id") != workspace_id:
+        raise HTTPException(403, "Run belongs to a different workspace")
     graph_id = row["graph_id"]
     initial_payload = row["initial_payload"]
     if not graph_id:
@@ -367,20 +408,47 @@ def api_replay_run(run_id: int, request: Request, body: _ReplayBody = None):
     else:
         payload = decode_json_value(initial_payload, {})
 
-    from app.deps import _resolve_workspace
-    workspace_id = _resolve_workspace(request, user)
-    task = enqueue_graph.apply_async(args=[graph_id, payload],
-                                     priority=g.get("priority", 5))
+    task_id = None
+    try:
+        task = enqueue_graph.apply_async(
+            args=[graph_id, payload],
+            priority=g.get("priority", 5),
+        )
+        task_id = task.id
+    except (OSError, RuntimeError, AttributeError) as exc:
+        log.warning("Celery unavailable (%s) — replaying graph inline", exc)
+        import uuid
+        task_id = str(uuid.uuid4())
+        try:
+            from app.core.db import init_db as _init_db
+            _init_db()
+            update_run(task_id, "running")
+            try:
+                graph_data = json.loads(g.get('graph_json') or '{}')
+            except JSONDecodeError:
+                graph_data = {}
+            result = run_graph(
+                graph_data,
+                payload,
+                workspace_id=g.get('workspace_id'),
+            )
+            update_run(task_id, "succeeded", result=result,
+                       traces=result.get('traces', []))
+        except (OSError, RuntimeError) as inline_err:
+            log.exception("Inline graph replay failed")
+            update_run(task_id, "failed", result={"error": str(inline_err)})
+            raise HTTPException(500, f"Graph replay failed: {inline_err}")
+
     with get_conn() as conn:
         conn.cursor().execute(
             "INSERT INTO runs(task_id, graph_id, status, initial_payload, workspace_id) VALUES(%s,%s,'queued',%s,%s)",
-            (task.id, graph_id, json.dumps(payload), workspace_id)
+            (task_id, graph_id, json.dumps(payload), workspace_id)
         )
     log_audit(user["username"], "run.replay", "graph", graph_id,
-              {"replayed_run_id": run_id, "task_id": task.id, "graph": g["name"],
+              {"replayed_run_id": run_id, "task_id": task_id, "graph": g["name"],
                "payload_overridden": body is not None and body.payload is not None},
               request.client.host if request.client else None)
-    return {"queued": True, "task_id": task.id, "graph": g["name"], "replayed_run_id": run_id}
+    return {"queued": True, "task_id": task_id, "graph": g["name"], "replayed_run_id": run_id}
 
 
 # ── Real-time run log streaming (SSE) ─────────────────────────────────────────
@@ -426,7 +494,7 @@ def api_stream_run(task_id: str, request: Request):
             r.ping()
             pubsub = r.pubsub(ignore_subscribe_messages=True)
             pubsub.subscribe(f"run:{task_id}:stream")
-        except Exception:
+        except (AttributeError, OSError, RuntimeError):
             pubsub = None  # fall through to polling-only path
 
         deadline       = _time.time() + 300   # 5-minute hard timeout
@@ -444,7 +512,7 @@ def api_stream_run(task_id: str, request: Request):
                             raw = raw.decode()
                         try:
                             event = json.loads(raw)
-                        except Exception:
+                        except JSONDecodeError:
                             continue
                         yield f"data: {raw}\n\n"
                         if event.get("type") == "run_done":
@@ -479,7 +547,7 @@ def api_stream_run(task_id: str, request: Request):
                 try:
                     pubsub.unsubscribe()
                     pubsub.close()
-                except Exception:
+                except (AttributeError, RuntimeError, OSError):
                     pass
 
         # Timeout — send a synthetic done event so the client doesn't hang

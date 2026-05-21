@@ -85,7 +85,7 @@ def send_email(to: "str | list[str]", subject: str, html: str, text: str = "") -
             return False
         log.info("email: sent to %s (subject=%r)", to, subject)
         return True
-    except Exception as exc:
+    except (httpx.HTTPError, OSError) as exc:
         log.error("email: send failed — %s", exc)
         return False
 

@@ -13,11 +13,16 @@ Output (mode=dict):    { result: {...}, count: N }  (dicts merged, last wins)
 Output (mode=concat):  { result: "...", count: N }
 """
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 NODE_TYPE = "action.aggregate"
 LABEL = "Aggregate"
 
 
 def run(config, inp, context, logger, creds=None, **kwargs):
+    logger.info("Aggregate: starting")
     mode       = config.get("mode", "list")
     field      = config.get("field", "")          # optional: extract sub-field from each item
     separator  = config.get("separator", "\n")    # for concat mode
@@ -48,15 +53,15 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         for item in items:
             if isinstance(item, dict):
                 result.update(item)
-        logger(f"Aggregate (dict): merged {count} items")
+        logger.info("Aggregate (dict): merged %s items", count)
         return {"result": result, "count": count}
 
     elif mode == "concat":
         parts = [str(item) for item in items]
         result = separator.join(parts)
-        logger(f"Aggregate (concat): joined {count} items")
+        logger.info("Aggregate (concat): joined %s items", count)
         return {"result": result, "count": count}
 
     else:  # list (default)
-        logger(f"Aggregate (list): collected {count} items")
+        logger.info("Aggregate (list): collected %s items", count)
         return {"items": items, "count": count}

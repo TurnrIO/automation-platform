@@ -9,6 +9,7 @@ Note: _check_webhook_rate now returns tuple[bool, int, int] (allowed, limit, win
 """
 import os
 import pytest
+import redis
 from unittest.mock import patch, MagicMock
 
 
@@ -54,7 +55,7 @@ class TestCheckWebhookRate:
                 with patch.object(_redis_mod, "from_url", return_value=mock_redis):
                     allowed, _limit, _window = mod._check_webhook_rate("tok")
                     return allowed
-            except Exception:
+            except (redis.exceptions.RedisError, OSError, RuntimeError):
                 return True  # fail open
 
     def test_first_request_allowed(self):
@@ -75,23 +76,20 @@ class TestCheckWebhookRate:
         result = self._invoke_with_mock(_make_redis(9999), rate_limit=0, count=9999)
         assert result is True
 
-    def test_redis_unavailable_fails_open(self):
-        """If Redis raises, _check_webhook_rate should return True (fail open)."""
+    def test_redis_unavailable_fails_closed(self):
+        """If Redis raises, _check_webhook_rate returns False (fail closed) — deny request."""
         import app.routers.webhooks as mod
         bad_redis = MagicMock()
-        bad_redis.pipeline.side_effect = Exception("connection refused")
+        bad_redis.pipeline.side_effect = redis.exceptions.ConnectionError("connection refused")
 
         policy = {"limit": 10, "window": 60}
         with patch("app.routers.webhooks.get_ratelimit_policy", return_value=policy):
-            try:
-                import redis as _redis_mod
-                with patch.object(_redis_mod, "from_url", return_value=bad_redis):
-                    allowed, _limit, _window = mod._check_webhook_rate("tok")
-                    result = allowed
-            except Exception:
-                result = True  # the function returns True on exception
+            import redis as _redis_mod
+            with patch.object(_redis_mod, "from_url", return_value=bad_redis):
+                allowed, _limit, _window = mod._check_webhook_rate("tok")
+                result = allowed
 
-        assert result is True
+        assert result is False
 
     def test_return_tuple_contains_limit_and_window(self):
         """_check_webhook_rate returns (bool, limit, window) tuple."""
@@ -110,7 +108,7 @@ class TestCheckWebhookRate:
                     assert allowed is True
                     assert limit == 42
                     assert window == 120
-            except Exception:
+            except (redis.exceptions.RedisError, OSError, RuntimeError):
                 pass  # fail open is acceptable
 
     def test_different_tokens_use_different_keys(self):
@@ -141,7 +139,7 @@ class TestCheckWebhookRate:
                 with patch.object(_redis_mod, "from_url", return_value=mock_r):
                     mod._check_webhook_rate("token-A")
                     mod._check_webhook_rate("token-B")
-            except Exception:
+            except (redis.exceptions.RedisError, OSError, RuntimeError):
                 pass
 
         # Verify the key names differ per token (if calls were tracked)
@@ -178,11 +176,14 @@ class TestLoginBruteForce:
                 _check_login_allowed("1.2.3.4")
         assert exc_info.value.status_code == 429
 
-    def test_redis_unavailable_fails_open(self):
+    def test_redis_unavailable_fails_closed(self):
+        """If Redis is unavailable, _check_login_allowed raises 503 (fail closed)."""
+        from fastapi import HTTPException
         from app.routers.auth import _check_login_allowed
         with patch("app.routers.auth._login_redis", return_value=None):
-            # Should not raise even without Redis
-            _check_login_allowed("1.2.3.4")
+            with pytest.raises(HTTPException) as exc_info:
+                _check_login_allowed("1.2.3.4")
+            assert exc_info.value.status_code == 503
 
     def test_fifth_failure_triggers_lockout(self):
         from app.routers.auth import _record_login_failure

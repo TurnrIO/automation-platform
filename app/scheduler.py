@@ -28,6 +28,8 @@ in single-instance mode (no HA, same behaviour as before this change).
 import os
 import time
 import logging
+import psycopg2
+import json
 import secrets as _secrets
 
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -40,7 +42,8 @@ load_secrets()
 from app.telemetry import setup_tracing
 setup_tracing()
 
-from app.core.db import init_db, list_schedules, delete_schedule, purge_expired_sessions
+from app.core.db import init_db, list_schedules, delete_schedule, purge_expired_sessions, update_run
+from app.core.executor import run_graph
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -115,22 +118,69 @@ def _make_job(sched, scheduler_ref=None):
                 from app.core.db import get_graph as _get_graph
                 _g = _get_graph(sched["graph_id"])
                 _priority = int((_g or {}).get("priority", 5))
-            except Exception:
+            except (OSError, RuntimeError):
                 _priority = 5
-            task = enqueue_graph.apply_async(args=[sched["graph_id"], payload], priority=_priority)
-            # Pre-create a run record scoped to the schedule's workspace
+
+            task_id = None
             try:
-                from app.core.db import get_conn
-                workspace_id = sched.get("workspace_id")
-                with get_conn() as conn:
-                    conn.cursor().execute(
-                        "INSERT INTO runs(task_id, graph_id, status, initial_payload, workspace_id)"
-                        " VALUES(%s,%s,'queued',%s,%s)"
-                        " ON CONFLICT (task_id) DO NOTHING",
-                        (task.id, sched["graph_id"], _json.dumps(payload), workspace_id),
-                    )
-            except Exception as exc:
-                log.warning("Could not pre-create run record for schedule %s: %s", sid, exc)
+                task = enqueue_graph.apply_async(args=[sched["graph_id"], payload], priority=_priority)
+                task_id = task.id
+            except (OSError, RuntimeError) as exc:
+                log.warning("Celery unavailable (%s) — running scheduled graph inline", exc)
+                import uuid
+                task_id = str(uuid.uuid4())
+                # Pre-create a run record so the DB has a 'queued' entry before
+                # the inline executor transitions it to 'running'.
+                try:
+                    from app.core.db import get_conn
+                    ws_id = sched.get("workspace_id")
+                    with get_conn() as conn:
+                        conn.cursor().execute(
+                            "INSERT INTO runs(task_id, graph_id, status, initial_payload, workspace_id)"
+                            " VALUES(%s,%s,'queued',%s,%s)"
+                            " ON CONFLICT (task_id) DO NOTHING",
+                            (task_id, sched["graph_id"], _json.dumps(payload), ws_id),
+                        )
+                except (ConnectionError, OSError, RuntimeError) as exc:
+                    log.warning("Could not pre-create run record for inline schedule %s: %s", sid, exc)
+                # Set running state before execution; catch infrastructure errors only
+                try:
+                    update_run(task_id, "running")
+                except (ConnectionError, OSError, RuntimeError, psycopg2.Error):
+                    log.warning("Could not update run %s to 'running' — skipping inline execution", task_id)
+                    return
+                try:
+                    _g_data = json.loads(_g.get('graph_json') or '{}') if _g else {}
+                    result = run_graph(_g_data, payload, workspace_id=sched.get("workspace_id"))
+                    update_run(task_id, "succeeded", result=result,
+                               traces=result.get('traces', []))
+                    log.info("Inline scheduled graph %s completed successfully", task_id)
+                except (ValueError, TypeError, AttributeError) as flow_err:
+                    log.warning("Inline scheduled graph %s hit a flow error — %s: %s",
+                                task_id, type(flow_err).__name__, flow_err)
+                    raise  # propagate to crash the job so APScheduler sees it
+                except (OSError, RuntimeError, psycopg2.Error) as inline_err:
+                    # Only catch infrastructure errors; flow logic errors (ValueError,
+                    # TypeError, AttributeError from nodes) should propagate uncaught so
+                    # the error is surfaced as a traceback rather than silently swallowed.
+                    log.exception("Inline scheduled graph run failed")
+                    update_run(task_id, "dead", result={"error": str(inline_err)})
+                    return  # graph failed inline
+
+            # Pre-create a run record scoped to the schedule's workspace
+            if task_id:
+                try:
+                    from app.core.db import get_conn
+                    workspace_id = sched.get("workspace_id")
+                    with get_conn() as conn:
+                        conn.cursor().execute(
+                            "INSERT INTO runs(task_id, graph_id, status, initial_payload, workspace_id)"
+                            " VALUES(%s,%s,'queued',%s,%s)"
+                            " ON CONFLICT (task_id) DO NOTHING",
+                            (task_id, sched["graph_id"], _json.dumps(payload), workspace_id),
+                        )
+                except (ConnectionError, OSError, RuntimeError) as exc:
+                    log.warning("Could not pre-create run record for schedule %s: %s", sid, exc)
         elif sched.get("workflow", "").startswith("script:"):
             script_name = sched["workflow"][len("script:"):]
             enqueue_script.delay(script_name, payload)
@@ -141,7 +191,7 @@ def _make_job(sched, scheduler_ref=None):
             try:
                 delete_schedule(sid)
                 log.info("One-shot schedule %s fired and removed", sid)
-            except Exception as exc:
+            except (AttributeError, KeyError, RuntimeError) as exc:
                 log.warning("Could not auto-delete one-shot schedule %s: %s", sid, exc)
     return job
 
@@ -157,7 +207,7 @@ def _sync_schedules(scheduler, known: dict):
         if sid not in current_ids:
             try:
                 scheduler.remove_job(str(sid))
-            except Exception:
+            except (AttributeError, KeyError, RuntimeError):
                 pass
             del known[sid]
 
@@ -188,7 +238,7 @@ def _sync_schedules(scheduler, known: dict):
                     replace_existing=True,
                 )
                 known[sid] = s
-            except Exception as e:
+            except (RuntimeError, OSError) as e:
                 log.error("Failed to schedule %s: %s", s["name"], e)
 
 
@@ -198,7 +248,7 @@ def _purge_sessions():
     try:
         purge_expired_sessions()
         log.info("Session purge complete")
-    except Exception as exc:
+    except (AttributeError, OSError) as exc:
         log.warning("Session purge failed: %s", exc)
 
 
@@ -208,6 +258,7 @@ def _auto_trim_runs():
         from app.core.db import get_retention_policy, trim_runs_by_count, trim_runs_by_age
         policy = get_retention_policy()
         if not policy["enabled"]:
+            log.info("Auto-trim: retention policy disabled — skipping")
             return
         if policy["mode"] == "age":
             deleted = trim_runs_by_age(policy["days"])
@@ -215,7 +266,7 @@ def _auto_trim_runs():
         else:
             deleted = trim_runs_by_count(policy["count"])
             log.info("Auto-trim: deleted %d runs, kept %d most recent", deleted, policy["count"])
-    except Exception as exc:
+    except (AttributeError, OSError) as exc:
         log.warning("Auto-trim failed: %s", exc)
 
 
@@ -297,7 +348,7 @@ def main():
     try:
         r = _redis_client()
         r.ping()
-    except Exception as exc:
+    except (OSError, RuntimeError) as exc:
         log.warning(
             "Redis unavailable (%s) — running in standalone mode (no HA)", exc
         )

@@ -32,13 +32,14 @@ def test_api_get_run_payload_uses_real_dict_cursor_and_decodes_payload():
     from app.routers import runs as runs_mod
 
     fake_cur = mock.MagicMock()
-    fake_cur.fetchone.return_value = {"initial_payload": '{"x": 1}'}
+    fake_cur.fetchone.return_value = {"initial_payload": '{"x": 1}', "workspace_id": 1}
     fake_conn = mock.MagicMock()
     fake_conn.__enter__ = lambda s: s
     fake_conn.__exit__ = mock.MagicMock(return_value=False)
     fake_conn.cursor.return_value = fake_cur
 
     with mock.patch.object(runs_mod, "_require_run_scope", return_value={"id": 1}), \
+         mock.patch("app.deps._resolve_workspace", return_value=1), \
          mock.patch("app.core.db.get_conn", return_value=fake_conn):
         result = runs_mod.api_get_run_payload(7, mock.MagicMock())
 

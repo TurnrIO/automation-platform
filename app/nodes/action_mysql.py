@@ -25,15 +25,53 @@ Output shape
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import re
+import socket
+from json import JSONDecodeError
+
 from ._utils import _render, _resolve_cred_raw
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 NODE_TYPE = "action.mysql"
 LABEL     = "MySQL Query"
+
+_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("ff00::/8"),
+]
+_IMDS_IP = ipaddress.ip_address("169.254.169.254")
+
+
+def _is_internal_ip(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        if ip == _IMDS_IP:
+            return True
+        return any(ip in net for net in _BLOCKED_NETWORKS)
+    except ValueError:
+        return True
+
+
+def _check_ssrf(host: str, port: int) -> None:
+    """Block connections to internal/reserved IPs via DNS resolution."""
+    try:
+        infos = socket.getaddrinfo(host, port)
+        for (_, _, _, _, sockaddr) in infos:
+            if _is_internal_ip(sockaddr[0]):
+                raise ValueError(f"SSRF blocked: resolved to internal IP {sockaddr[0]}")
+    except socket.gaierror:
+        raise ValueError(f"SSRF blocked: could not resolve hostname '{host}'")
 
 
 # ── Connection helpers ────────────────────────────────────────────────────────
@@ -102,7 +140,7 @@ def _normalize_params(raw: str, context: dict, creds: dict):
         if isinstance(val, (list, tuple)):
             return list(val)
         return [val]
-    except (json.JSONDecodeError, TypeError):
+    except (JSONDecodeError, TypeError):
         return []
 
 
@@ -111,12 +149,15 @@ def _normalize_params(raw: str, context: dict, creds: dict):
 def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) -> dict:
     creds = creds or {}
 
+    logger.info("[action.mysql] invoked")
+
+
     # Resolve credential
     cred_name = _render(config.get("credential", ""), context, creds)
     raw_cred  = _resolve_cred_raw(cred_name, creds)
     try:
         cred = json.loads(raw_cred) if raw_cred else {}
-    except (json.JSONDecodeError, TypeError):
+    except (JSONDecodeError, TypeError):
         cred = {}
 
     if not cred:
@@ -133,12 +174,17 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
         raise ValueError("action.mysql: 'query' is required")
 
     params    = _normalize_params(config.get("params", ""), context, creds)
-    row_limit = int(_render(str(config.get("row_limit", "1000")), context, creds) or 1000)
+    try: row_limit = int(_render(str(config.get("row_limit", "1000")), context, creds))
+    except (ValueError, TypeError): row_limit = 1000
 
-    logger(
-        f"[action.mysql] host={connect_kw.get('host')} db={connect_kw.get('db')} "
-        f"query={query[:80]}{'…' if len(query) > 80 else ''}"
+    logger.info(
+        "[action.mysql] host=%s db=%s query=%s",
+        connect_kw.get('host'), connect_kw.get('db'),
+        query[:80] + ('…' if len(query) > 80 else ''),
     )
+
+    # ── SSRF: resolve hostname before connecting ───────────────────────────
+    _check_ssrf(connect_kw.get('host', 'localhost'), connect_kw.get('port', 3306))
 
     conn = _connect(connect_kw)
     try:
@@ -160,10 +206,10 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
                 rows = [dict(r) for r in raw_rows]
                 if row_limit and len(rows) > row_limit:
                     rows = rows[:row_limit]
-                    logger(f"[action.mysql] result truncated to {row_limit} rows")
+                    logger.info("[action.mysql] result truncated to %s rows", row_limit)
 
         conn.commit()
-        logger(f"[action.mysql] rows={len(rows)} affected={affected}")
+        logger.info("[action.mysql] rows=%s affected=%s", len(rows), affected)
 
         return {
             "rows":           rows,
@@ -174,14 +220,15 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
             "last_insert_id": last_insert_id,
         }
 
-    except Exception:
+    except (AttributeError, TypeError, ValueError, RuntimeError) as exc:
         try:
             conn.rollback()
-        except Exception:
+        except (AttributeError, TypeError, RuntimeError):
             pass
-        raise
+        raise RuntimeError(f"action.mysql: query failed — {exc}") from exc
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        if conn is not None:
+            try:
+                conn.close()
+            except (AttributeError, TypeError, RuntimeError):
+                pass

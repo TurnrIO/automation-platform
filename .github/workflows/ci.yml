@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, Flux]
   pull_request:
-    branches: [main]
+    branches: [main, Flux]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -40,6 +40,20 @@ jobs:
   test:
     name: Unit tests (pytest)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: hiverunr
+          POSTGRES_PASSWORD: hiverunr
+          POSTGRES_DB: hiverunr
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-python@v6.2.0
@@ -51,7 +65,7 @@ jobs:
       - name: Run unit tests
         run: pytest tests/ --ignore=tests/integration --cov=app --cov-report=term-missing
         env:
-          # Ensure run_script is disabled (default) — tests handle their own flag
+          DATABASE_URL: postgresql://hiverunr:hiverunr@localhost:5432/hiverunr
           ENABLE_RUN_SCRIPT: "false"
 
   # ── container build check ──────────────────────────────────────────────────
@@ -87,27 +101,58 @@ jobs:
     name: Integration smoke test
     runs-on: ubuntu-latest
     needs: [lint, test, build]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/Flux')
     steps:
       - uses: actions/checkout@v6.0.2
       - name: Start stack
         run: |
           cp .env.example .env
           SECRET_KEY=$(python3 -c "import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())")
+          API_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
           sed -i "s|^SECRET_KEY=$|SECRET_KEY=$SECRET_KEY|" .env
+          sed -i "s|^API_KEY=.*|API_KEY=$API_KEY|" .env
           docker compose up -d --build
-      - name: Wait for stack to be healthy
+      - name: Wait for api container to be healthy
         run: |
-          echo "Waiting for stack..."
-          for i in $(seq 1 45); do
-            if curl -sf http://localhost/health > /dev/null 2>&1; then
-              echo "Stack healthy after $((i*2))s"
+          echo "Waiting for api container to be healthy..."
+          for i in $(seq 1 60); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' $(docker compose ps -q api) 2>/dev/null || echo "starting")
+            if [ "$status" = "healthy" ]; then
+              echo "Api healthy after $((i*2))s"
               exit 0
             fi
             sleep 2
           done
-          echo "Stack did not become healthy in 90s — dumping logs"
-          docker compose logs --tail=50
+          echo "Api did not become healthy in 120s"
+          docker compose ps
+          exit 1
+      - name: Wait for stack to be healthy
+        run: |
+          # After the container is healthy it has run init_db() (= run_migrations()),
+          # but Docker healthcheck only confirms the /health endpoint responds.
+          # Poll alembic_version directly so we don't depend on alembic
+          # command.current() resolving alembic.ini inside the container.
+          for i in $(seq 1 30); do
+            version=$(docker compose exec -T api \
+              python3 -c "
+          import os, psycopg2
+          dsn = os.environ['DATABASE_URL']
+          conn = psycopg2.connect(dsn)
+          cur = conn.cursor()
+          cur.execute('SELECT version_num FROM alembic_version LIMIT 1')
+          row = cur.fetchone()
+          print(row[0] if row else '')
+          conn.close()
+          " 2>/dev/null || echo "")
+            if [ -n "$version" ]; then
+              echo "Migrations complete (version=$version) after $((i*2))s"
+              exit 0
+            fi
+            echo "Waiting for migrations... version=${version:-empty} ($((i*2))s)"
+            sleep 2
+          done
+          echo "Migrations not complete in 60s"
+          docker compose ps
           exit 1
       - name: Bootstrap first admin user
         run: |
@@ -126,7 +171,20 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install pytest httpx
+      - run: pip install pytest httpx -r requirements.txt
+      - name: Wait for Celery tasks to be registered
+        run: |
+          echo "Waiting for Celery task registration..."
+          for i in $(seq 1 30); do
+            if docker exec $(docker compose ps -q worker) celery -b redis://redis:6379/0 inspect registered 2>/dev/null | grep -q "enqueue_graph"; then
+              echo "Tasks registered after $((i*5))s"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Tasks did not register in 150s — dumping logs"
+          docker compose logs --tail=50
+          exit 1
       - name: Run integration tests
         run: pytest tests/integration/ -v
         env:

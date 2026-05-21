@@ -4,10 +4,13 @@ All API routes live in app/routers/. This file wires together the app,
 static files, page routes, and startup lifecycle only.
 """
 import os
+import urllib.parse
 import logging
+import psycopg2
 from pathlib import Path
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -48,7 +51,15 @@ STATIC_DIR   = Path(__file__).parent / "static"
 _docker_dist = Path("/app/frontend_dist")
 DIST_DIR     = _docker_dist if _docker_dist.is_dir() else STATIC_DIR / "dist"
 WORKFLOWS    = ["example"]
-API_KEY      = os.environ.get("API_KEY", "dev_api_key")
+# Fail fast: an unset API_KEY is a deployment error, not a warning.
+# The app will not start until a secure, non-default key is configured.
+API_KEY = os.environ.get("API_KEY", "")
+if not API_KEY or API_KEY in {"dev_api_key", "change-me-before-deployment"}:
+    raise RuntimeError(
+        "API_KEY environment variable is not set or is set to an insecure default. "
+        "Set API_KEY to a random secret in .env before deploying this instance. "
+        "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+    )
 
 # ── F-series migration tracker ────────────────────────────────────────────────
 # Pages listed here are served from the Vite dist/ build instead of app/static/.
@@ -100,8 +111,38 @@ def _serve_page(filename: str):
 
 from app._version import __version__
 
-app = FastAPI(title="HiveRunr", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
 
+def _startup():
+    """Synchronous startup logic — runs inside the lifespan manager."""
+    try:
+        _validate_config()
+    except RuntimeError as exc:
+        log.error("startup: FATAL — %s", exc)
+        import sys; sys.exit(1)
+    init_db()
+    seed_example_graphs()
+    for name in WORKFLOWS:
+        try:
+            upsert_workflow(name)
+        except (AttributeError, RuntimeError, OSError) as exc:
+            log.warning("startup: could not register workflow %r — %s", name, exc)
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Lifespan context manager — replaces @on_event startup/shutdown."""
+    _startup()
+    yield
+
+
+app = FastAPI(
+    title="HiveRunr",
+    version=__version__,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+    lifespan=_lifespan,
+)
 # ── Global exception handler ──────────────────────────────────────────────────
 # Catches any unhandled exception that reaches the top of the stack, logs the
 # full traceback, then returns a structured JSON 500 response.
@@ -129,6 +170,36 @@ async def _unhandled_exception_handler(_req: _Request, exc: Exception) -> _JSONR
 
 # ── Middleware ────────────────────────────────────────────────────────────────
 app.add_middleware(PrometheusMiddleware)
+
+# ── Rate limiting (slowapi + Redis) ───────────────────────────────────────────
+# Note: we import and configure this AFTER app creation so `app` is in scope.
+# The limiter is shared as app.state.limiter so route decorators can reference it.
+from app.routers._rate_limit import limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ── CORS ──────────────────────────────────────────────────────────────────────
+# Defence-in-depth: restrict cross-origin access. The React SPA and API are
+# same-origin in normal deployment, but explicit allowlist prevents bypass if
+# Caddy misconfiguration occurs.
+from fastapi.middleware.cors import CORSMiddleware
+_app_url = os.environ.get("APP_URL", "http://localhost")
+_parsed = urllib.parse.urlparse(_app_url)
+_allowed_origins_raw = os.environ.get("CORS_ALLOWED_ORIGINS", "").strip()
+if not _allowed_origins_raw:
+    _allowed_origins_raw = f"{_parsed.scheme}://{_parsed.netloc}"
+_origins = [o.strip() for o in _allowed_origins_raw.split(",") if o.strip()]
+if _origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "x-api-token", "X-Workspace-Id"],
+        expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Policy"],
+        max_age=86400,
+    )
 
 # ── Include routers ───────────────────────────────────────────────────────────
 app.include_router(auth_router)
@@ -199,7 +270,7 @@ def _validate_config() -> None:
         with get_conn() as conn:
             conn.cursor().execute("SELECT 1")
         log.info("startup: database connection OK")
-    except Exception as exc:
+    except (OSError, RuntimeError, AttributeError) as exc:
         raise RuntimeError(
             f"Cannot connect to the database: {exc}. "
             "Check DATABASE_URL in .env and ensure the postgres container is running."
@@ -216,7 +287,7 @@ def _validate_config() -> None:
         import redis as _redis
         _redis.from_url(redis_url, socket_connect_timeout=3).ping()
         log.info("startup: Redis connection OK")
-    except Exception as exc:
+    except (OSError, RuntimeError, AttributeError) as exc:
         raise RuntimeError(
             f"Cannot connect to Redis: {exc}. "
             "Check REDIS_URL in .env and ensure the redis container is running."
@@ -232,12 +303,8 @@ def _validate_config() -> None:
         )
 
     # ── Warning: API_KEY ──────────────────────────────────────────────────────
-    unsafe_keys = {"dev_api_key", "change-me-before-deployment", ""}
-    if os.environ.get("API_KEY", "dev_api_key") in unsafe_keys:
-        log.warning(
-            "startup: API_KEY is set to an unsafe default. "
-            "Set API_KEY to a random secret in .env before exposing this instance publicly."
-        )
+    # API_KEY is now enforced at module level — no fallback default.
+    # (The check above guarantees it is set and non-unsafe at startup.)
 
     # ── Warning: APP_URL ──────────────────────────────────────────────────────
     app_url = os.environ.get("APP_URL", "http://localhost")
@@ -263,27 +330,94 @@ def _validate_config() -> None:
         )
 
 
-# ── Startup ───────────────────────────────────────────────────────────────────
-@app.on_event("startup")
+# ── Startup (deprecated) ──────────────────────────────────────────────────────
+# Replaced by _lifespan below. Kept as a no-op reference.
 def startup():
-    try:
-        _validate_config()
-    except RuntimeError as exc:
-        log.error("startup: FATAL — %s", exc)
-        import sys; sys.exit(1)
-    init_db()
-    seed_example_graphs()
-    for name in WORKFLOWS:
-        try:
-            upsert_workflow(name)
-        except Exception as exc:
-            log.warning("startup: could not register workflow %r — %s", name, exc)
+    pass
+
+
+
+
+
+
+
+
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": __version__}
+    checks = {}
+    overall = "ok"
+
+    # ── Database ─────────────────────────────────────────────────────────────
+    try:
+        from app.core.db import get_conn
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+        checks["database"] = {"status": "ok"}
+    except (OSError, RuntimeError, AttributeError, Exception) as exc:
+        checks["database"] = {
+            "status": "error",
+            "message": str(exc),
+            "fix": "Check DATABASE_URL in .env and ensure the postgres container is running.",
+        }
+        overall = "degraded"
+
+    # ── Redis ─────────────────────────────────────────────────────────────────
+    try:
+        import redis as _redis
+        redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+        r = _redis.from_url(redis_url, socket_connect_timeout=3, socket_timeout=3)
+        r.ping()
+        display_url = redis_url.split("@")[-1]  # strip credentials if present
+        checks["redis"] = {"status": "ok", "url": display_url}
+    except (OSError, RuntimeError, AttributeError, Exception) as exc:
+        checks["redis"] = {
+            "status": "error",
+            "message": str(exc),
+            "fix": "Check REDIS_URL in .env and ensure the redis container is running.",
+        }
+        overall = "degraded"
+
+    # ── Frontend dist ─────────────────────────────────────────────────────────
+    dist_available = _docker_dist.is_dir() and any(_docker_dist.iterdir()) if _docker_dist.exists() else False
+    checks["frontend_dist"] = {
+        "status": "ok" if dist_available else "error",
+        "path": str(DIST_DIR),
+        "fix": "run 'docker compose up -d --build' if unavailable" if not dist_available else "ok",
+    }
+    if not dist_available:
+        overall = "degraded"
+
+    return {
+        "status": overall,
+        "version": __version__,
+        "checks": checks,
+    }
+
+
+# ── Healthz (k8s readiness) ─────────────────────────────────────────────────
+@app.get("/healthz")
+def healthz():
+    """Kubernetes readiness probe — returns 200 if DB + Redis are reachable."""
+    try:
+        from app.core.db import get_conn
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+    except (psycopg2.Error, OSError):
+        return Response("database unreachable", status_code=503)
+    try:
+        import redis as _redis
+        from redis.exceptions import ConnectionError as _RedisConnError, TimeoutError as _RedisTimeoutError
+        redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+        r = _redis.from_url(redis_url, socket_connect_timeout=3, socket_timeout=3)
+        r.ping()
+    except (_RedisConnError, _RedisTimeoutError, OSError):
+        return Response("redis unreachable", status_code=503)
+    return Response("ok", media_type="text/plain")
 
 
 # ── Page routes ───────────────────────────────────────────────────────────────
@@ -449,7 +583,7 @@ async def api_run_workflow(name: str, request: Request):
         payload = await request.json()
         if not isinstance(payload, dict):
             payload = {}
-    except Exception:
+    except (ValueError, TypeError):
         payload = {}
     task_id      = str(_uuid.uuid4())
     workspace_id = _resolve_workspace(request, user)
@@ -460,3 +594,4 @@ async def api_run_workflow(name: str, request: Request):
         )
     enqueue_script.apply_async(args=[name, payload], task_id=task_id)
     return {"queued": True, "task_id": task_id, "workflow": name}
+

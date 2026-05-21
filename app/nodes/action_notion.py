@@ -1,14 +1,76 @@
 """Notion API action node."""
+import ipaddress
+import logging
+import socket
+import urllib.parse
 import json
+import httpx
+from json import JSONDecodeError
 from app.nodes._utils import _render, _resolve_cred_raw
 
+logger = logging.getLogger(__name__)
 NODE_TYPE = "action.notion"
 LABEL = "Notion"
+
+_API_BASE = "https://api.notion.com/v1"
+
+# ── SSRF protection ────────────────────────────────────────────────────────────
+
+_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("224.0.0.0/4"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("ff00::/8"),
+]
+_IMDS_IP = ipaddress.ip_address("169.254.169.254")
+
+
+def _blocked_ip(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        if ip == _IMDS_IP:
+            return True
+        for net in _BLOCKED_NETWORKS:
+            if ip in net:
+                return True
+    except ValueError:
+        pass
+    return False
+
+
+def _check_url_ssrf(url: str) -> None:
+    """Validate URL scheme and resolve hostname for SSRF check."""
+    parsed = urllib.parse.urlparse(url)
+    scheme = parsed.scheme.lower()
+    if scheme not in ("http", "https"):
+        raise ValueError(
+            f"Notion: only http/https URLs are allowed. "
+            f"Got scheme '{scheme}' in URL: {url[:100]}"
+        )
+    host = parsed.hostname
+    if not host:
+        raise ValueError(f"Notion: could not determine hostname from URL: {url[:100]}")
+    try:
+        addr_info = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        raise ValueError(f"Notion: could not resolve hostname '{host}' in URL: {url[:100]}")
+    for (family, _, _, _, sockaddr) in addr_info:
+        ip_str = sockaddr[0]
+        if _blocked_ip(ip_str):
+            raise ValueError(
+                f"Notion: URL resolves to blocked address {ip_str}. "
+                f"URL: {url[:100]}"
+            )
 
 
 def run(config, inp, context, logger, creds=None, **kwargs):
     """Interact with Notion API."""
-    import httpx
 
     token = _render(config.get('token', ''), context, creds)
     cred_name = _render(config.get('credential', ''), context, creds)
@@ -18,7 +80,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         if raw:
             try:
                 token = json.loads(raw).get('token', raw)
-            except (json.JSONDecodeError, ValueError):
+            except (JSONDecodeError, ValueError):
                 token = raw
 
     if not token:
@@ -34,13 +96,29 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         'Content-Type': 'application/json',
         'Notion-Version': '2022-06-28',
     }
-    base = 'https://api.notion.com/v1'
+    base = _API_BASE
 
     def notion(method, url, **kw):
-        r = httpx.request(method, url, headers=headers, timeout=30, **kw)
-        r.raise_for_status()
-        return r.json()
+        # SSRF: validate resolved URL before making request
+        try:
+            _check_url_ssrf(url)
+        except ValueError as exc:
+            return {"__error": f"Notion SSRF check failed: {exc}"}
+        try:
+            r = httpx.request(method, url, headers=headers, timeout=30, **kw)
+            r.raise_for_status()
+            return r.json()
+        except httpx.HTTPError as exc:
+            logger.warning("Notion: HTTP error — %s", exc)
+            return {"__error": f"Notion HTTP error: {exc}"}
+        except OSError as exc:
+            logger.warning("Notion: connection error — %s", exc)
+            return {"__error": f"Notion connection error: {exc}"}
+        except (AttributeError, KeyError, TypeError) as exc:
+            logger.warning("Notion: unexpected error — %s", exc)
+            return {"__error": f"Notion request failed: {exc}"}
 
+    logger.info("Notion: action=%s", action)
     if action == 'query_database':
         if not database_id:
             raise ValueError("Notion query_database: database_id required")
@@ -49,16 +127,23 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         if config.get('filter_json'):
             try:
                 body['filter'] = json.loads(_render(config['filter_json'], context, creds))
-            except (json.JSONDecodeError, ValueError):
+            except (JSONDecodeError, ValueError):
                 pass
         if config.get('sorts_json'):
             try:
                 body['sorts'] = json.loads(_render(config['sorts_json'], context, creds))
-            except (json.JSONDecodeError, ValueError):
+            except (JSONDecodeError, ValueError):
                 pass
-        body['page_size'] = int(config.get('page_size', 50))
+        try: page_size = int(_render(str(config.get('page_size', 50)), context, creds))
+        except (ValueError, TypeError): page_size = 50
+        body['page_size'] = page_size
 
+        logger.info("Notion: query_database id=%s", database_id)
         data = notion('POST', f'{base}/databases/{database_id}/query', json=body)
+
+        if data.get('__error'):
+            logger.warning("Notion: query_database failed — %s", data['__error'])
+            return data
 
         # Flatten page properties for easy downstream use
         pages = []
@@ -90,21 +175,30 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                     props[k] = v
             pages.append({'id': p['id'], 'url': p.get('url'), 'properties': props})
 
-        return {'pages': pages, 'count': len(pages), 'has_more': data.get('has_more', False)}
+        count = len(pages)
+        logger.info("Notion: query_database completed — pages=%d has_more=%s", count, data.get('has_more', False))
+        return {'pages': pages, 'count': count, 'has_more': data.get('has_more', False)}
 
     elif action == 'get_page':
+        logger.info("Notion: get_page id=%s", page_id)
         if not page_id:
             raise ValueError("Notion get_page: page_id required")
-        return notion('GET', f'{base}/pages/{page_id}')
+        result = notion('GET', f'{base}/pages/{page_id}')
+        if result.get('__error'):
+            logger.warning("Notion: get_page failed — %s", result['__error'])
+        else:
+            logger.info("Notion: get_page completed — page_id=%s", result.get('id'))
+        return result
 
     elif action == 'create_page':
+        logger.info("Notion: create_page in db=%s", database_id)
         if not database_id:
             raise ValueError("Notion create_page: database_id required")
 
         props_raw = _render(config.get('properties_json', '{}'), context, creds)
         try:
             props = json.loads(props_raw)
-        except (json.JSONDecodeError, ValueError):
+        except (JSONDecodeError, ValueError):
             raise ValueError("Notion create_page: properties_json must be valid JSON")
 
         # Auto-wrap plain string values as title/rich_text
@@ -123,27 +217,48 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         if title_val:
             body['properties'][title_key] = {'title': [{'type': 'text', 'text': {'content': title_val}}]}
 
-        return notion('POST', f'{base}/pages', json=body)
+        result = notion('POST', f'{base}/pages', json=body)
+        if result.get('__error'):
+            logger.warning("Notion: create_page failed — %s", result['__error'])
+        else:
+            logger.info("Notion: create_page completed — page_id=%s", result.get('id'))
+        return result
 
     elif action == 'update_page':
+        logger.info("Notion: update_page id=%s", page_id)
         if not page_id:
             raise ValueError("Notion update_page: page_id required")
 
         props_raw = _render(config.get('properties_json', '{}'), context, creds)
         try:
             props = json.loads(props_raw)
-        except (json.JSONDecodeError, ValueError):
+        except (JSONDecodeError, ValueError):
             raise ValueError("Notion update_page: properties_json must be valid JSON")
 
-        return notion('PATCH', f'{base}/pages/{page_id}', json={'properties': props})
+        result = notion('PATCH', f'{base}/pages/{page_id}', json={'properties': props})
+        if result.get('__error'):
+            logger.warning("Notion: update_page failed — %s", result['__error'])
+        else:
+            logger.info("Notion: update_page completed — page_id=%s", result.get('id'))
+        return result
 
     elif action == 'search':
-        body = {'page_size': int(config.get('page_size', 20))}
+        logger.info("Notion: search query=%r", query[:50] if query else '')
+        try: page_size = int(_render(str(config.get('page_size', 20)), context, creds))
+        except (ValueError, TypeError): page_size = 20
+        body = {'page_size': page_size}
         if query:
             body['query'] = query
-        return notion('POST', f'{base}/search', json=body)
+        result = notion('POST', f'{base}/search', json=body)
+        if result.get('__error'):
+            logger.warning("Notion: search failed — %s", result['__error'])
+        else:
+            results_count = len(result.get('results', []))
+            logger.info("Notion: search completed — results=%d", results_count)
+        return result
 
     elif action == 'append_blocks':
+        logger.info("Notion: append_blocks page_id=%s", page_id)
         if not page_id:
             raise ValueError("Notion append_blocks: page_id required")
 
@@ -153,8 +268,12 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         blocks = [{'object': 'block', 'type': 'paragraph',
                    'paragraph': {'rich_text': [{'type': 'text', 'text': {'content': content}}]}}]
 
-        return notion('PATCH', f'{base}/blocks/{page_id}/children', json={'children': blocks})
+        result = notion('PATCH', f'{base}/blocks/{page_id}/children', json={'children': blocks})
+        if result.get('__error'):
+            logger.warning("Notion: append_blocks failed — %s", result['__error'])
+        else:
+            logger.info("Notion: append_blocks completed — page_id=%s", page_id)
+        return result
 
     else:
         raise ValueError(f"Notion: unknown action '{action}'")
-

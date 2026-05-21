@@ -1,10 +1,13 @@
 """OpenAI Assistants API node."""
-import json
+import logging
+import json, os
+from json import JSONDecodeError
 import time
 import urllib.request
 import urllib.error
 from app.nodes._utils import _render
 
+logger = logging.getLogger(__name__)
 NODE_TYPE = "action.openai_assistant"
 LABEL     = "OpenAI Assistant"
 
@@ -24,19 +27,23 @@ def _req(method, path, api_key, body=None):
     except urllib.error.HTTPError as e:
         body_txt = e.read().decode()
         try:   detail = json.loads(body_txt).get("error", {}).get("message", body_txt)
-        except: detail = body_txt
+        except JSONDecodeError: detail = body_txt
         raise RuntimeError(f"OpenAI {e.code}: {detail}")
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"OpenAI connection error: {e.reason}")
+    except OSError as e:
+        raise RuntimeError(f"OpenAI network error: {e}")
 
 
 def run(config, inp, context, logger, creds=None, **kwargs):
+    logger.info("OpenAI Assistant action started")
     cred_name = config.get("credential", "")
-    import os
     api_key = ""
     if cred_name and creds:
         raw = creds.get(cred_name, {})
         if isinstance(raw, str):
             try:   raw = json.loads(raw)
-            except: raw = {}
+            except JSONDecodeError: raw = {}
         api_key = raw.get("api_key", raw.get("token", ""))
     if not api_key:
         api_key = _render(config.get("api_key", ""), context, creds)
@@ -47,10 +54,13 @@ def run(config, inp, context, logger, creds=None, **kwargs):
 
     op           = _render(config.get("operation", "run_thread"), context, creds)
     assistant_id = _render(config.get("assistant_id", ""), context, creds)
+    logger.info("OpenAI Assistant: op=%s", op)
 
     # ── create thread ─────────────────────────────────────────────────────────
     if op == "create_thread":
+        logger.info("OpenAI Assistant: create_thread")
         thread = _req("POST", "/threads", api_key, {})
+        logger.info("OpenAI Assistant: create_thread done thread_id=%s", thread["id"])
         return {"thread_id": thread["id"], "thread": thread}
 
     # ── add message ───────────────────────────────────────────────────────────
@@ -58,18 +68,22 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         thread_id = _render(config.get("thread_id", ""), context, creds)
         content   = _render(config.get("content", ""), context, creds)
         role      = _render(config.get("role", "user"), context, creds)
+        logger.info("OpenAI Assistant: add_message to thread=%s", thread_id)
         msg = _req("POST", f"/threads/{thread_id}/messages", api_key,
                    {"role": role, "content": content})
+        logger.info("OpenAI Assistant: add_message done thread=%s msg_id=%s", thread_id, msg["id"])
         return {"message_id": msg["id"], "thread_id": thread_id}
 
     # ── run thread (create run + poll until done) ─────────────────────────────
     elif op == "run_thread":
         thread_id    = _render(config.get("thread_id", ""), context, creds)
         instructions = _render(config.get("instructions", ""), context, creds)
-        timeout      = int(_render(config.get("timeout", "120"), context, creds) or 120)
+        try: timeout = int(_render(config.get("timeout", "120"), context, creds))
+        except (ValueError, TypeError): timeout = 120
         body = {"assistant_id": assistant_id}
         if instructions:
             body["instructions"] = instructions
+        logger.info("OpenAI Assistant: run_thread thread=%s assistant=%s", thread_id, assistant_id)
         run_obj = _req("POST", f"/threads/{thread_id}/runs", api_key, body)
         run_id  = run_obj["id"]
 
@@ -79,7 +93,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             status  = run_obj.get("status")
             if status in ("completed", "failed", "cancelled", "expired"):
                 break
-            time.sleep(2)
+            try: time.sleep(0.1)  # interruptible — smaller step than 0.5s to reduce shutdown latency
+            except InterruptedError: break
 
         if run_obj.get("status") != "completed":
             raise RuntimeError(f"OpenAI run {run_id} ended with status: {run_obj.get('status')}")
@@ -97,6 +112,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                         break
                 if reply:
                     break
+        logger.info("OpenAI Assistant: run_thread done thread=%s run=%s status=%s",
+                    thread_id, run_id, run_obj.get("status"))
         return {"reply": reply, "run_id": run_id, "status": run_obj.get("status"),
                 "messages": messages, "thread_id": thread_id}
 
@@ -104,13 +121,17 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     elif op == "get_run_status":
         thread_id = _render(config.get("thread_id", ""), context, creds)
         run_id    = _render(config.get("run_id", ""), context, creds)
+        logger.info("OpenAI Assistant: get_run_status thread=%s run=%s", thread_id, run_id)
         run_obj   = _req("GET", f"/threads/{thread_id}/runs/{run_id}", api_key)
+        logger.info("OpenAI Assistant: get_run_status done thread=%s run=%s status=%s", thread_id, run_id, run_obj.get("status"))
         return {"run_id": run_id, "status": run_obj.get("status"), "run": run_obj}
 
     # ── list messages ──────────────────────────────────────────────────────────
     elif op == "list_messages":
         thread_id = _render(config.get("thread_id", ""), context, creds)
-        limit     = int(_render(config.get("limit", "20"), context, creds) or 20)
+        try: limit = int(_render(config.get("limit", "20"), context, creds))
+        except (ValueError, TypeError): limit = 20
+        logger.info("OpenAI Assistant: list_messages thread=%s limit=%s", thread_id, limit)
         msgs = _req("GET", f"/threads/{thread_id}/messages?limit={min(limit,100)}&order=asc", api_key)
         messages = msgs.get("data", [])
         # Flatten text content
@@ -120,6 +141,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                 p["text"]["value"] for p in m.get("content", []) if p.get("type") == "text"
             )
             flat.append({"role": m["role"], "text": text, "id": m["id"]})
+        logger.info("OpenAI Assistant: list_messages done thread=%s count=%s", thread_id, len(flat))
         return {"messages": flat, "count": len(flat), "thread_id": thread_id}
 
     else:

@@ -1,8 +1,10 @@
 """Auth, user management, and API token routers."""
 import logging
+import redis
 import secrets as _sec
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse, Response, RedirectResponse
+from fastapi.responses import JSONResponse, Response
+from app.routers._rate_limit import limiter
 from pydantic import BaseModel
 
 from app.deps import _check_admin, _require_writer, _require_owner, _resolve_workspace
@@ -18,35 +20,46 @@ _ATTEMPT_TTL_S = 3600   # sliding window for attempt counter (1 hour)
 def _login_redis():
     """Return a Redis client, or None if Redis is unavailable."""
     try:
-        import redis as _redis
         import os
         url = os.environ.get("REDIS_URL", "redis://redis:6379/0")
-        r = _redis.from_url(url, socket_connect_timeout=2, socket_timeout=2)
+        r = redis.from_url(url, socket_connect_timeout=2, socket_timeout=2)
         r.ping()
         return r
-    except Exception:
+    except (OSError, RuntimeError, AttributeError, redis.exceptions.RedisError):
+        # OSError/RuntimeError/AttributeError cover the original targets.
+        # redis.exceptions.RedisError catches ConnectionError/TimeoutError/etc.
+        # (NOT subclasses of OSError — they extend RedisError).
+        # In test/CI environments without Redis, this is expected; return None.
         return None
 
 
 def _check_login_allowed(ip: str) -> None:
-    """Raise HTTP 429 if this IP is currently locked out."""
+    """Raise HTTP 429 if this IP is currently locked out.
+
+    Fail-closed: if Redis is unavailable, reject logins rather than
+    bypass brute-force protection.
+    """
     r = _login_redis()
     if r is None:
-        return  # Redis unavailable — fail open rather than block all logins
+        log.critical("Login check unavailable — Redis is down; rejecting login attempt from %s", ip)
+        raise HTTPException(503, "Login service temporarily unavailable")
     lockout_key = f"hiverunr:login:lockout:{ip}"
     if r.exists(lockout_key):
-        ttl = r.ttl(lockout_key)
         raise HTTPException(
             429,
-            f"Too many failed login attempts. Try again in {ttl // 60 + 1} minute(s).",
+            "Too many failed login attempts. Please try again later.",
         )
 
 
 def _record_login_failure(ip: str) -> None:
-    """Increment the failure counter; lock out the IP after _MAX_ATTEMPTS."""
+    """Increment the failure counter; lock out the IP after _MAX_ATTEMPTS.
+
+    Fail-closed: if Redis is unavailable, log and raise rather than silently permit.
+    """
     r = _login_redis()
     if r is None:
-        return
+        log.critical("Cannot record login failure — Redis is down for IP %s", ip)
+        raise HTTPException(503, "Login service temporarily unavailable")
     attempt_key = f"hiverunr:login:attempts:{ip}"
     lockout_key = f"hiverunr:login:lockout:{ip}"
     count = r.incr(attempt_key)
@@ -78,10 +91,19 @@ from app.core.db import (
 router = APIRouter()
 
 
+def _user_in_workspace(user_id: int, workspace_id: int) -> bool:
+    """Return True if user_id is a member of workspace_id."""
+    from app.core.db import get_workspace_member
+    return get_workspace_member(workspace_id, user_id) is not None
+
+
 # ── Caddy forward_auth gate ───────────────────────────────────────────────────
 @router.get("/api/auth/check", include_in_schema=False)
 def auth_check(request: Request):
-    """Called by Caddy forward_auth before proxying to Flower."""
+    """Called by Caddy forward_auth before proxying to Flower.
+
+    Returns 200 if authenticated, 401 if not.
+    """
     from app.auth import get_current_user, hash_token
     if get_current_user(request):
         return Response(status_code=200)
@@ -93,8 +115,7 @@ def auth_check(request: Request):
         if tok:
             touch_api_token(th)
             return Response(status_code=200)
-    next_path = request.headers.get("x-forwarded-uri", "/flower/")
-    return RedirectResponse(f"/login?next={next_path}", status_code=302)
+    return Response(status_code=401)
 
 
 # ── Auth endpoints ────────────────────────────────────────────────────────────
@@ -143,6 +164,7 @@ class LoginBody(BaseModel):
 
 
 @router.post("/api/auth/login")
+@limiter.limit("10/minute")
 def auth_login(body: LoginBody, request: Request):
     from app.auth import verify_password, hash_token, generate_token, SESSION_COOKIE, SESSION_DAYS
     # Prefer X-Forwarded-For (set by Caddy/nginx) so we rate-limit the real client
@@ -231,7 +253,7 @@ def api_create_user(body: CreateUserBody, request: Request):
     try:
         user = create_user(body.username.strip(), body.email.strip().lower(),
                            hash_password(body.password), body.role)
-    except Exception as e:
+    except (ValueError, RuntimeError, TypeError) as e:
         raise HTTPException(400, str(e))
     log_audit(actor["username"], "user.create", "user", user["id"],
               {"username": user["username"], "role": user["role"]},
@@ -247,9 +269,13 @@ class UpdateRoleBody(BaseModel):
 @router.patch("/api/users/{user_id}/role")
 def api_update_user_role(user_id: int, body: UpdateRoleBody, request: Request):
     actor = _require_owner(request)
+    workspace_id = _resolve_workspace(request, actor)
     target = get_user_by_id(user_id)
     if not target:
         raise HTTPException(404, "User not found")
+    # enforce workspace ownership when caller has a workspace context
+    if workspace_id is not None and not _user_in_workspace(user_id, workspace_id):
+        raise HTTPException(403, "Cross-workspace user access denied")
     if target["role"] == "owner":
         raise HTTPException(400, "Cannot change the owner's role")
     if body.role == "owner":
@@ -271,9 +297,13 @@ class ResetPasswordBody(BaseModel):
 def api_reset_user_password(user_id: int, body: ResetPasswordBody, request: Request):
     from app.auth import hash_password
     actor = _require_writer(request)
+    workspace_id = _resolve_workspace(request, actor)
     target = get_user_by_id(user_id)
     if not target:
         raise HTTPException(404, "User not found")
+    # enforce workspace ownership when caller has a workspace context
+    if workspace_id is not None and not _user_in_workspace(user_id, workspace_id):
+        raise HTTPException(403, "Cross-workspace user access denied")
     if target["role"] == "owner" and actor.get("role") != "owner":
         raise HTTPException(403, "Only owner can reset the owner's password")
     if len(body.new_password) < 8:
@@ -288,6 +318,7 @@ def api_reset_user_password(user_id: int, body: ResetPasswordBody, request: Requ
 @router.delete("/api/users/{user_id}")
 def api_delete_user(user_id: int, request: Request):
     actor = _require_writer(request)
+    workspace_id = _resolve_workspace(request, actor)
     target = get_user_by_id(user_id)
     if not target:
         raise HTTPException(404, "User not found")
@@ -295,6 +326,9 @@ def api_delete_user(user_id: int, request: Request):
         raise HTTPException(400, "Cannot delete the owner account")
     if actor.get("id") == user_id:
         raise HTTPException(400, "Cannot delete your own account")
+    # enforce workspace ownership when caller has a workspace context
+    if workspace_id is not None and not _user_in_workspace(user_id, workspace_id):
+        raise HTTPException(403, "Cross-workspace user access denied")
     delete_user(user_id)
     log_audit(actor["username"], "user.delete", "user", user_id,
               {"username": target["username"], "role": target["role"]},
@@ -351,9 +385,15 @@ def api_create_token(body: CreateTokenBody, request: Request):
 @router.delete("/api/tokens/{token_id}")
 def api_delete_token(token_id: int, request: Request):
     actor = _require_owner(request)
-    # grab name before deletion for audit detail
-    existing = next((t for t in list_api_tokens() if t["id"] == token_id), None)
-    delete_api_token(token_id)
+    workspace_id = _resolve_workspace(request, actor)
+    # grab name before deletion for audit detail — scoped to caller's workspace
+    existing = next((t for t in list_api_tokens(workspace_id=workspace_id) if t["id"] == token_id), None)
+    if existing is None:
+        raise HTTPException(404, "Token not found")
+    # enforce workspace ownership when caller has a workspace context
+    if workspace_id is not None and existing.get("workspace_id") != workspace_id:
+        raise HTTPException(403, "Cross-workspace token access denied")
+    delete_api_token(token_id, workspace_id=workspace_id)
     log_audit(actor["username"], "token.delete", "token", token_id,
               {"name": existing["name"] if existing else None},
               request.client.host if request.client else None)
@@ -396,8 +436,8 @@ def auth_forgot_password(body: ForgotPasswordBody):
                 reset_url=reset_url,
                 username=owner["username"],
             )
-        except Exception as exc:
-            log.error("forgot-password: %s", exc)
+        except (OSError, AttributeError, RuntimeError, redis.exceptions.RedisError) as exc:
+            log.error("forgot-password: [%s] %s", type(exc).__name__, exc)
 
     return {"ok": True, "message": "If that email matches the owner account, a reset link has been sent."}
 
@@ -469,7 +509,9 @@ def invite_accept(token: str, request: Request):
                         max_age=SESSION_DAYS * 86400)
         return resp
 
-    # New user — return info so the frontend can show a signup form
+    # New user — consume token atomically to prevent replay, then return
+    # signup info so the frontend can show a pre-filled registration form.
+    consume_invite_token(token_hash)
     return {
         "ok": True,
         "needs_signup": True,
@@ -520,7 +562,7 @@ def invite_signup(body: InviteSignupBody, request: Request):
             hash_password(body.password),
             role="viewer",   # global role is always viewer for invited users
         )
-    except Exception as exc:
+    except (ValueError, RuntimeError, TypeError) as exc:
         raise HTTPException(400, str(exc))
 
     if graph_id:

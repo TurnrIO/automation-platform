@@ -38,17 +38,79 @@ Output shape (varies by operation)
 """
 from __future__ import annotations
 
+import base64
+import ipaddress
 import json
 import logging
+import socket
+import urllib.error
+import urllib.parse
+import urllib.request
+from json import JSONDecodeError
+
+logger = logging.getLogger(__name__)
+
 from ._utils import _render, _resolve_cred_raw
 
-log = logging.getLogger(__name__)
 
 NODE_TYPE = "action.jira"
 LABEL     = "Jira"
 
+# ── SSRF protection ────────────────────────────────────────────────────────────
 
-# ── HTTP helper ───────────────────────────────────────────────────────────────
+_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("224.0.0.0/4"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("ff00::/8"),
+]
+_IMDS_IP = ipaddress.ip_address("169.254.169.254")
+
+
+def _blocked_ip(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        if ip == _IMDS_IP:
+            return True
+        for net in _BLOCKED_NETWORKS:
+            if ip in net:
+                return True
+    except ValueError:
+        pass
+    return False
+
+
+def _check_url_ssrf(url: str) -> None:
+    parsed = urllib.parse.urlparse(url)
+    scheme = parsed.scheme.lower()
+    if scheme not in ("http", "https"):
+        raise ValueError(
+            f"Jira: only http/https URLs are allowed. "
+            f"Got scheme '{scheme}' in URL: {url[:100]}"
+        )
+    host = parsed.hostname
+    if not host:
+        raise ValueError(f"Jira: could not determine hostname from URL: {url[:100]}")
+    try:
+        addr_info = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        raise ValueError(f"Jira: could not resolve hostname '{host}' in URL: {url[:100]}")
+    for (family, _, _, _, sockaddr) in addr_info:
+        ip_str = sockaddr[0]
+        if _blocked_ip(ip_str):
+            raise ValueError(
+                f"Jira: URL resolves to blocked address {ip_str}. "
+                f"URL: {url[:100]}"
+            )
+
+
+# ── HTTP helper ────────────────────────────────────────────────────────────────
 
 def _jira_request(
     base_url: str,
@@ -60,10 +122,6 @@ def _jira_request(
     params: dict | None = None,
 ) -> tuple[int, dict | list | None]:
     """Make an authenticated Jira REST v3 request. Returns (status_code, body)."""
-    import urllib.request
-    import urllib.parse
-    import base64
-
     url = base_url.rstrip("/") + path
     if params:
         url += "?" + urllib.parse.urlencode(params)
@@ -88,11 +146,24 @@ def _jira_request(
         body = exc.read()
         try:
             err_body = json.loads(body)
-        except Exception:
-            err_body = {"raw": body.decode(errors="replace")}
+        except JSONDecodeError:
+            # Log a safe prefix only — raw response body may contain sensitive Jira data
+            safe_body = body.decode(errors="replace")[:200]
+            logger.warning("Jira API error %s: response was not JSON; body prefix: %r",
+                        exc.code, safe_body)
+            err_body = {"message": "(raw non-JSON response from Jira)"}
         raise RuntimeError(
             f"Jira API error {exc.code}: {err_body.get('errorMessages') or err_body.get('message') or err_body}"
         ) from exc
+    except urllib.error.URLError as exc:
+        logger.warning("Jira: URL error — %s", exc)
+        raise RuntimeError(f"Jira request failed: {exc}") from exc
+    except OSError as exc:
+        logger.warning("Jira: connection error — %s", exc)
+        raise RuntimeError(f"Jira connection error: {exc}") from exc
+    except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
+        logger.warning("Jira: unexpected error — %s", exc)
+        raise RuntimeError(f"Jira request failed: {exc}") from exc
 
 
 def _flatten_issue(raw: dict) -> dict:
@@ -167,7 +238,7 @@ def _update_issue(base_url, email, token, issue_key, fields_json):
     if isinstance(fields_json, str):
         try:
             fields = json.loads(fields_json)
-        except json.JSONDecodeError as exc:
+        except JSONDecodeError as exc:
             raise ValueError(f"action.jira update-issue: 'fields' must be valid JSON — {exc}") from exc
     else:
         fields = fields_json or {}
@@ -258,7 +329,7 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
     raw_cred  = _resolve_cred_raw(cred_name, creds)
     try:
         cred = json.loads(raw_cred) if raw_cred else {}
-    except (json.JSONDecodeError, TypeError):
+    except (JSONDecodeError, TypeError):
         cred = {}
 
     if not cred:
@@ -276,26 +347,38 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
             "action.jira credential must contain: base_url, email, api_token"
         )
 
+    # SSRF: validate base_url before making any HTTP request
+    try:
+        _check_url_ssrf(base_url)
+    except ValueError as e:
+        logger.warning("Jira: SSRF check failed — %s", e)
+        return {"__error": str(e), "base_url": base_url}
+
     def r(key, default=""):
         return _render(str(config.get(key, default) or default), context, creds)
 
     operation = r("operation", "get-issue").strip().lower()
 
-    logger(f"[action.jira] operation={operation} base_url={base_url}")
+    logger.info("[action.jira] operation=%s base_url=%s", operation, base_url)
 
     if operation == "get-issue":
-        return _get_issue(base_url, email, api_token,
+        logger.info("action.jira: get-issue key=%s", r("issue_key"))
+        result = _get_issue(base_url, email, api_token,
                           r("issue_key"), r("expand"))
+        logger.info("action.jira: get-issue done key=%s id=%s", result.get("key"), result.get("id"))
+        return result
 
     if operation == "create-issue":
+        logger.info("action.jira: create-issue project=%s type=%s summary=%r",
+                    r("project_key"), r("issue_type", "Task"), r("summary")[:50])
         extra_raw = r("extra_fields")
         try:
             extra = json.loads(extra_raw) if extra_raw.strip() else {}
-        except json.JSONDecodeError:
+        except JSONDecodeError:
             extra = {}
         labels_raw = r("labels")
         labels = [l.strip() for l in labels_raw.split(",") if l.strip()] if labels_raw else []
-        return _create_issue(
+        result = _create_issue(
             base_url, email, api_token,
             project_key  = r("project_key"),
             issue_type   = r("issue_type", "Task"),
@@ -306,33 +389,54 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
             labels       = labels,
             extra_fields = extra,
         )
+        logger.info("action.jira: create-issue done key=%s id=%s url=%s", result.get("key"), result.get("id"), result.get("url", "")[:60])
+        return result
 
     if operation == "update-issue":
-        return _update_issue(base_url, email, api_token,
+        logger.info("action.jira: update-issue key=%s", r("issue_key"))
+        result = _update_issue(base_url, email, api_token,
                              r("issue_key"), r("fields"))
+        logger.info("action.jira: update-issue done key=%s ok=%s", result.get("key"), result.get("ok"))
+        return result
 
     if operation == "add-comment":
-        return _add_comment(base_url, email, api_token,
+        logger.info("action.jira: add-comment key=%s", r("issue_key"))
+        result = _add_comment(base_url, email, api_token,
                             r("issue_key"), r("comment"))
+        logger.info("action.jira: add-comment done id=%s", result.get("id"))
+        return result
 
     if operation == "search":
-        return _search(
+        logger.info("action.jira: search jql=%r", r("jql")[:60])
+        result = _search(
             base_url, email, api_token,
             jql         = r("jql"),
             fields      = r("fields", "summary,status,assignee,priority,issuetype"),
             max_results = r("max_results", "50"),
             start_at    = r("start_at", "0"),
         )
+        logger.info("action.jira: search done count=%s total=%s", result.get("count"), result.get("total"))
+        return result
 
     if operation == "get-transitions":
-        return _get_transitions(base_url, email, api_token, r("issue_key"))
+        logger.info("action.jira: get-transitions key=%s", r("issue_key"))
+        result = _get_transitions(base_url, email, api_token, r("issue_key"))
+        logger.info("action.jira: get-transitions done count=%s", len(result.get("transitions", [])))
+        return result
 
     if operation == "transition-issue":
-        return _transition_issue(base_url, email, api_token,
+        logger.info("action.jira: transition-issue key=%s transition=%s",
+                    r("issue_key"), r("transition_id"))
+        result = _transition_issue(base_url, email, api_token,
                                  r("issue_key"), r("transition_id"), r("comment"))
+        logger.info("action.jira: transition-issue done ok=%s transition_id=%s", result.get("ok"), result.get("transition_id"))
+        return result
 
     if operation == "delete-issue":
-        return _delete_issue(base_url, email, api_token,
+        logger.info("action.jira: delete-issue key=%s", r("issue_key"))
+        result = _delete_issue(base_url, email, api_token,
                              r("issue_key"), r("delete_subtasks", "false"))
+        logger.info("action.jira: delete-issue done key=%s ok=%s", result.get("key"), result.get("ok"))
+        return result
 
     raise ValueError(f"action.jira: unknown operation '{operation}'")

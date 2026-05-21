@@ -58,21 +58,24 @@ def _page(icon: str, heading: str, body: str, colour: str) -> HTMLResponse:
 # ── Approve ───────────────────────────────────────────────────────────────────
 
 @router.get("/api/approvals/{token}/approve", include_in_schema=False)
-def do_approve(token: str):
-    return _decide(token, "approved")
+def do_approve(token: str, request: Request):
+    return _decide(token, "approved", request)
 
 
 # ── Reject ────────────────────────────────────────────────────────────────────
 
 @router.get("/api/approvals/{token}/reject", include_in_schema=False)
-def do_reject(token: str):
-    return _decide(token, "rejected")
+def do_reject(token: str, request: Request):
+    return _decide(token, "rejected", request)
 
 
 # ── Core decision handler ─────────────────────────────────────────────────────
 
-def _decide(token: str, decision: str) -> HTMLResponse:
+def _decide(token: str, decision: str, request: Request | None = None) -> HTMLResponse:
     """Write decision to Redis + DB, return a confirmation page."""
+    from app.deps import _resolve_workspace
+    from app.auth import get_current_user
+
     # Validate token
     row = _get_approval(token)
     if not row:
@@ -81,6 +84,20 @@ def _decide(token: str, decision: str) -> HTMLResponse:
             "<p>This approval link is invalid or has expired.</p>",
             "#f87171",
         )
+
+    # Enforce workspace isolation: if the caller has a workspace context,
+    # verify the approval belongs to that workspace.
+    if request is not None:
+        actor = get_current_user(request)
+        if actor:
+            workspace_id = _resolve_workspace(request, actor)
+            if workspace_id is not None and row.get("workspace_id") is not None:
+                if row["workspace_id"] != workspace_id:
+                    return _page(
+                        "🚫", "Wrong workspace",
+                        "<p>This approval does not belong to your workspace.</p>",
+                        "#f87171",
+                    )
 
     if row["status"] != "pending":
         status = row["status"]
@@ -98,8 +115,8 @@ def _decide(token: str, decision: str) -> HTMLResponse:
         redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
         r = _redis.from_url(redis_url, socket_connect_timeout=5)
         r.setex(f"approval:{token}:decision", 86400 * 7, decision)
-    except Exception as exc:
-        log.error("approvals: Redis write failed for token %s — %s", token[:8], exc)
+    except _redis.RedisError as exc:
+        log.error("approvals: Redis error for token %s — %s", token[:8], exc)
         return _page(
             "⚠️", "Error",
             "<p>Could not record your decision — the workflow server may be unavailable. "
@@ -114,8 +131,14 @@ def _decide(token: str, decision: str) -> HTMLResponse:
                 "UPDATE approvals SET status=%s, decided_at=NOW() WHERE token=%s AND status='pending'",
                 (decision, token),
             )
-    except Exception as exc:
-        log.warning("approvals: DB update failed — %s", exc)
+    except (AttributeError, RuntimeError, OSError) as exc:
+        log.error("approvals: DB update failed for %s — %s", token[:8], exc)
+        return _page(
+            "⚠", "Error",
+            "<p>Could not record your decision — the database may be unavailable. "
+            "Please try again or contact your administrator.</p>",
+            "#fbbf24",
+        )
 
     log.info("approvals: %s decision=%s graph=%s", token[:8], decision, row.get("graph_name", ""))
 
@@ -154,19 +177,53 @@ def approval_status(token: str, request: Request):
 
 @router.get("/api/approvals")
 def list_approvals(request: Request, status: str = "", limit: int = 50):
+    from app.auth import get_current_user
+    from app.deps import _resolve_workspace
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
     _check_admin(request)
+    workspace_id = _resolve_workspace(request, user)
     with get_conn() as conn:
         cur = conn.cursor()
-        if status:
-            cur.execute(
-                "SELECT * FROM approvals WHERE status=%s ORDER BY created_at DESC LIMIT %s",
-                (status, limit),
-            )
+        is_global_owner = user.get("role") == "owner"
+        # Check if workspace_id column exists before using it
+        col_exists = False
+        try:
+            cur.execute("SELECT 1 FROM information_schema.columns WHERE table_name='approvals' AND column_name='workspace_id'")
+            col_exists = cur.fetchone() is not None
+        except (AttributeError, TypeError, RuntimeError):
+            pass
+        # Scope: always scope to workspace if one is contextually available,
+        # unless the user is the global owner (who can see all workspaces)
+        if col_exists and workspace_id is not None and not is_global_owner:
+            scope_col = "workspace_id"
+            scope_val = workspace_id
         else:
-            cur.execute(
-                "SELECT * FROM approvals ORDER BY created_at DESC LIMIT %s",
-                (limit,),
-            )
+            scope_col = None
+            scope_val = None
+        if status:
+            if scope_col:
+                cur.execute(
+                    f"SELECT * FROM approvals WHERE status=%s AND {scope_col}=%s ORDER BY created_at DESC LIMIT %s",
+                    (status, scope_val, limit),
+                )
+            else:
+                cur.execute(
+                    "SELECT * FROM approvals WHERE status=%s ORDER BY created_at DESC LIMIT %s",
+                    (status, limit),
+                )
+        else:
+            if scope_col:
+                cur.execute(
+                    f"SELECT * FROM approvals WHERE {scope_col}=%s ORDER BY created_at DESC LIMIT %s",
+                    (scope_val, limit),
+                )
+            else:
+                cur.execute(
+                    "SELECT * FROM approvals ORDER BY created_at DESC LIMIT %s",
+                    (limit,),
+                )
         return cur.fetchall()
 
 
@@ -178,6 +235,6 @@ def _get_approval(token: str):
             cur = conn.cursor()
             cur.execute("SELECT * FROM approvals WHERE token=%s", (token,))
             return cur.fetchone()
-    except Exception as exc:
+    except (AttributeError, TypeError, RuntimeError, OSError) as exc:
         log.error("approvals: DB lookup failed — %s", exc)
         return None

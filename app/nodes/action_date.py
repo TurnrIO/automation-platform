@@ -17,6 +17,9 @@ Output always includes:
 from datetime import datetime, timezone, timedelta
 from app.nodes._utils import _render
 
+import logging
+
+logger = logging.getLogger(__name__)
 NODE_TYPE = "action.date"
 LABEL = "Date / Time"
 
@@ -84,7 +87,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     if operation == "now":
         dt = datetime.now(timezone.utc)
         result = _dt_to_dict(dt, fmt)
-        logger(f"Date now: {result['iso']}")
+        logger.info("Date now: %s", result["iso"])
         return result
 
     if operation in ("format", "parse", "add", "subtract"):
@@ -92,7 +95,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
 
         if operation in ("format", "parse"):
             result = _dt_to_dict(dt, fmt)
-            logger(f"Date {operation}: {result['iso']}")
+            logger.info("Date %s: %s", operation, result["iso"])
             return result
 
         # add / subtract
@@ -104,7 +107,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         td = timedelta(**{td_unit: n})
         dt2 = dt + td if operation == "add" else dt - td
         result = _dt_to_dict(dt2, fmt)
-        logger(f"Date {operation} {n} {td_unit}: {result['iso']}")
+        logger.info("Date %s %s %s: %s", operation, n, td_unit, result["iso"])
         return result
 
     if operation == "diff":
@@ -132,7 +135,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             "human":   human,
             "past":    total_seconds < 0,
         }
-        logger(f"Date diff: {human}")
+        logger.info("Date diff: %s", human)
         return result
 
     raise ValueError(f"action.date: unknown operation {operation!r}")

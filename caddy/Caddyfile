@@ -1,10 +1,31 @@
 :80 {
+  # Security headers for all responses
+  header {
+    # Prevent clickjacking
+    X-Frame-Options "DENY"
+    # Prevent MIME type sniffing
+    X-Content-Type-Options "nosniff"
+    # XSS protection (legacy browsers)
+    X-XSS-Protection "1; mode=block"
+    # Control referrer info sharing
+    Referrer-Policy "strict-origin-when-cross-origin"
+    # Permissions policy (disable unnecessary browser features)
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    # HSTS — enforce HTTPS for 1 year (adjust max-age for your rotation needs)
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    # Content Security Policy
+    Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.amazon.de https://*.playstation.com https://*.github.com https://*.mistral.ai; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self';"
+    # Remove server version header
+    -Server
+  }
+
   handle /flower/* {
     forward_auth api:8000 {
       uri /api/auth/check
     }
     reverse_proxy flower:5555
   }
+
   handle {
     reverse_proxy api:8000
   }

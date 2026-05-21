@@ -42,6 +42,7 @@ Typical secret JSON stored in the provider:
     }
 """
 import json
+from json import JSONDecodeError
 import logging
 import os
 import re
@@ -159,7 +160,9 @@ def _load_aws() -> None:
         _merge(data, f"AWS/{secret_name}")
     except ImportError:  # botocore missing
         log.error("botocore is not installed")
-    except Exception as exc:
+    except JSONDecodeError as exc:
+        log.error("AWS Secrets Manager: invalid JSON in secret %s: %s", secret_name, exc)
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:
         # Catch ClientError and everything else — never crash the app over this
         code = getattr(getattr(exc, "response", None), "__getitem__", lambda _: {})(
             "Error"
@@ -208,7 +211,12 @@ def _load_vault() -> None:
             log.warning(f"Vault returned an empty secret at {vault_path}")
             return
         _merge(data, f"Vault/{vault_path}")
-    except Exception as exc:
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            log.warning(f"Vault secret not found at {vault_path}")
+        else:
+            log.error(f"Failed to read Vault secret at {vault_path}: {exc}")
+    except (OSError, ValueError, TypeError) as exc:
         log.error(f"Failed to read Vault secret at {vault_path}: {exc}")
 
 
@@ -225,6 +233,8 @@ def _vault_approle_login(vault_addr: str, role_id: str, secret_id: str) -> str:
         token = resp.json()["auth"]["client_token"]
         log.info("Authenticated with Vault via AppRole")
         return token
-    except Exception as exc:
+    except httpx.HTTPStatusError as exc:
+        log.error(f"Vault AppRole login failed: {exc}")
+    except (OSError, ValueError, TypeError) as exc:
         log.error(f"Vault AppRole login failed: {exc}")
         return ""

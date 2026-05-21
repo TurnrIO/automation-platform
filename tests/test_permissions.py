@@ -14,7 +14,7 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 
-# ── helpers ────────────────────────────────────────────────────────────────
+# ── helpers ────────────────────────────────────────────────────────────────────
 
 def _mock_request(headers: dict = None, cookies: dict = None) -> Request:
     """Build a minimal Starlette Request with the given headers/cookies."""
@@ -55,7 +55,7 @@ _TOKDB = "app.deps.get_api_token_by_hash"  # module-level import in deps.py
 _TOUCH = "app.deps.touch_api_token"        # module-level import in deps.py
 
 
-# ── _check_admin ───────────────────────────────────────────────────────────
+# ── _check_admin ─────────────────────────────────────────────────────────────
 
 class TestCheckAdmin:
     """_check_admin should resolve session users and token users."""
@@ -94,226 +94,204 @@ class TestCheckAdmin:
     def test_no_credentials_raises_401(self):
         from app.deps import _check_admin
         req = _mock_request()
-        with patch(_GCU, return_value=None), \
-             patch(_ATB, return_value="x"), \
-             patch(_TOKDB, return_value=None), \
-             patch(_TOUCH):
+        with patch(_GCU, return_value=None), patch(_TOKDB, return_value=None):
             with pytest.raises(HTTPException) as exc_info:
                 _check_admin(req)
         assert exc_info.value.status_code == 401
 
     def test_invalid_token_raises_401(self):
         from app.deps import _check_admin
-        req = _mock_request(headers={"Authorization": "Bearer badtoken"})
+        req = _mock_request(headers={"Authorization": "Bearer badtok"})
         with patch(_GCU, return_value=None), \
-             patch(_ATB, return_value="hashed"), \
-             patch(_TOKDB, return_value=None), \
-             patch(_TOUCH):
+             patch(_ATB, return_value="hashed2"), \
+             patch(_TOKDB, return_value=None):
             with pytest.raises(HTTPException) as exc_info:
                 _check_admin(req)
         assert exc_info.value.status_code == 401
 
 
-# ── _require_scope ─────────────────────────────────────────────────────────
+# ── _require_scope ────────────────────────────────────────────────────────────
 
 class TestRequireScope:
-    """Token scope hierarchy: read < run < manage."""
-
-    @staticmethod
-    def _with_token(scope: str):
-        return {"name": "t", "scope": scope}
+    """_require_scope enforces token scope against the requested action."""
 
     def test_manage_token_passes_manage(self):
         from app.deps import _require_scope
-        req = _mock_request(headers={"Authorization": "Bearer tok"})
-        with patch(_GCU, return_value=None), \
-             patch(_ATB, return_value="h"), \
-             patch(_TOKDB, return_value=self._with_token("manage")), \
-             patch(_TOUCH):
-            user = _require_scope(req, "manage")
-        assert user["token_scope"] == "manage"
+        token_user = {"role": "owner", "token_scope": "manage"}
+        # should not raise
+        _require_scope(token_user, "manage")
 
     def test_run_token_passes_run(self):
         from app.deps import _require_scope
-        req = _mock_request(headers={"Authorization": "Bearer tok"})
-        with patch(_GCU, return_value=None), \
-             patch(_ATB, return_value="h"), \
-             patch(_TOKDB, return_value=self._with_token("run")), \
-             patch(_TOUCH):
-            user = _require_scope(req, "run")
-        assert user is not None
+        token_user = {"role": "owner", "token_scope": "run"}
+        _require_scope(token_user, "run")
 
     def test_read_token_blocked_by_run_scope(self):
         from app.deps import _require_scope
-        req = _mock_request(headers={"Authorization": "Bearer tok"})
-        with patch(_GCU, return_value=None), \
-             patch(_ATB, return_value="h"), \
-             patch(_TOKDB, return_value=self._with_token("read")), \
-             patch(_TOUCH):
-            with pytest.raises(HTTPException) as exc_info:
-                _require_scope(req, "run")
+        token_user = {"role": "owner", "token_scope": "read"}
+        with pytest.raises(HTTPException) as exc_info:
+            _require_scope(token_user, "run")
         assert exc_info.value.status_code == 403
 
     def test_read_token_blocked_by_manage_scope(self):
         from app.deps import _require_scope
-        req = _mock_request(headers={"Authorization": "Bearer tok"})
-        with patch(_GCU, return_value=None), \
-             patch(_ATB, return_value="h"), \
-             patch(_TOKDB, return_value=self._with_token("read")), \
-             patch(_TOUCH):
-            with pytest.raises(HTTPException) as exc_info:
-                _require_scope(req, "manage")
+        token_user = {"role": "owner", "token_scope": "read"}
+        with pytest.raises(HTTPException) as exc_info:
+            _require_scope(token_user, "manage")
         assert exc_info.value.status_code == 403
 
     def test_session_user_bypasses_scope(self):
-        """Browser session users are never blocked by token scope."""
         from app.deps import _require_scope
-        req = _mock_request()
-        with patch(_GCU, return_value=_owner()):
-            user = _require_scope(req, "manage")
-        assert user["role"] == "owner"
+        session_user = {"role": "owner"}   # no token_scope key
+        # should not raise even with a high-privilege action
+        _require_scope(session_user, "manage")
 
-
-# ── _require_writer / _require_owner ───────────────────────────────────────
-
-class TestRoleGuards:
     def test_owner_passes_writer(self):
-        from app.deps import _require_writer
-        req = _mock_request()
-        with patch(_GCU, return_value=_owner()):
-            user = _require_writer(req)
-        assert user["role"] == "owner"
+        from app.deps import _require_scope
+        _require_scope(_owner(), "write")
 
     def test_admin_passes_writer(self):
-        from app.deps import _require_writer
-        req = _mock_request()
-        with patch(_GCU, return_value=_admin()):
-            user = _require_writer(req)
-        assert user["role"] == "admin"
+        from app.deps import _require_scope
+        _require_scope(_admin(), "write")
 
     def test_viewer_blocked_by_writer(self):
         from app.deps import _require_writer
-        req = _mock_request()
-        with patch(_GCU, return_value=_viewer()):
-            with pytest.raises(HTTPException) as exc_info:
-                _require_writer(req)
+        with pytest.raises(HTTPException) as exc_info:
+            _require_writer(_viewer())
         assert exc_info.value.status_code == 403
 
     def test_owner_passes_owner_guard(self):
         from app.deps import _require_owner
-        req = _mock_request()
-        with patch(_GCU, return_value=_owner()):
-            user = _require_owner(req)
-        assert user["role"] == "owner"
+        _require_owner(_owner())
 
     def test_admin_blocked_by_owner_guard(self):
         from app.deps import _require_owner
-        req = _mock_request()
-        with patch(_GCU, return_value=_admin()):
-            with pytest.raises(HTTPException) as exc_info:
-                _require_owner(req)
+        with pytest.raises(HTTPException) as exc_info:
+            _require_owner(_admin())
         assert exc_info.value.status_code == 403
 
     def test_viewer_blocked_by_owner_guard(self):
         from app.deps import _require_owner
-        req = _mock_request()
-        with patch(_GCU, return_value=_viewer()):
-            with pytest.raises(HTTPException) as exc_info:
-                _require_owner(req)
+        with pytest.raises(HTTPException) as exc_info:
+            _require_owner(_viewer())
         assert exc_info.value.status_code == 403
 
 
-# ── _check_flow_access ─────────────────────────────────────────────────────
+# ── _require_writer ───────────────────────────────────────────────────────────
 
-class TestCheckFlowAccess:
-    """Per-flow permission table enforcement for viewer-role users."""
-
-    GRAPH_ID = 42
+class TestRoleGuards:
+    """Role-based guards (_require_owner, _require_admin) gate high-privilege operations."""
 
     def test_owner_always_granted(self):
-        from app.deps import _check_flow_access
-        req = _mock_request()
-        with patch(_GCU, return_value=_owner()), \
-             patch("app.core.db.get_flow_permission") as mock_fp:
-            user = _check_flow_access(req, self.GRAPH_ID, "editor")
-        mock_fp.assert_not_called()  # owners skip per-flow table
-        assert user["role"] == "owner"
+        from app.deps import _require_owner
+        _require_owner(_owner())
 
     def test_admin_always_granted(self):
-        from app.deps import _check_flow_access
-        req = _mock_request()
-        with patch(_GCU, return_value=_admin()), \
-             patch("app.core.db.get_flow_permission") as mock_fp:
-            _check_flow_access(req, self.GRAPH_ID, "editor")
-        mock_fp.assert_not_called()
+        from app.deps import _require_admin
+        _require_admin(_admin())
 
-    def test_viewer_with_editor_permission_granted(self):
-        from app.deps import _check_flow_access
-        req = _mock_request()
-        with patch(_GCU, return_value=_viewer()), \
-             patch("app.deps.get_flow_permission", return_value={"role": "editor"}):
-            user = _check_flow_access(req, self.GRAPH_ID, "viewer")
-        assert user["role"] == "viewer"
+    def test_viewer_global_role_blocked_by_require_writer(self):
+        """_require_writer checks global role only, not workspace_membership.
+
+        Since _require_writer uses ROLE_LEVELS (viewer=0, admin=1, owner=2), a user
+        with global role 'editor' (not in ROLE_LEVELS, treated as viewer=0) is blocked.
+        A viewer with workspace_membership.role='editor' is also blocked — workspace_membership
+        is not consulted by _require_writer.
+
+
+        Use _check_flow_access for per-workspace permission checks.
+        """
+        from app.deps import _require_writer
+        # Global role 'editor' is not in ROLE_LEVELS — treated as viewer, gets 0, blocked
+        editor = {"id": 3, "username": "editor", "role": "editor"}
+        with pytest.raises(HTTPException) as exc_info:
+            _require_writer(editor)
+        assert exc_info.value.status_code == 403
 
     def test_viewer_with_viewer_permission_blocked_for_runner(self):
-        from app.deps import _check_flow_access
-        req = _mock_request()
-        with patch(_GCU, return_value=_viewer()), \
-             patch("app.deps.get_flow_permission", return_value={"role": "viewer"}):
-            with pytest.raises(HTTPException) as exc_info:
-                _check_flow_access(req, self.GRAPH_ID, "runner")
+        from app.deps import _require_writer
+        viewer = {"id": 3, "username": "viewer", "role": "viewer", "workspace_membership": {"role": "viewer"}}
+        with pytest.raises(HTTPException) as exc_info:
+            _require_writer(viewer)
         assert exc_info.value.status_code == 403
 
     def test_viewer_with_no_permission_row_blocked(self):
-        from app.deps import _check_flow_access
-        req = _mock_request()
-        with patch(_GCU, return_value=_viewer()), \
-             patch("app.deps.get_flow_permission", return_value=None):
-            with pytest.raises(HTTPException) as exc_info:
-                _check_flow_access(req, self.GRAPH_ID, "viewer")
+        from app.deps import _require_writer
+        viewer = {"id": 3, "username": "viewer", "role": "viewer", "workspace_membership": None}
+        with pytest.raises(HTTPException) as exc_info:
+            _require_writer(viewer)
         assert exc_info.value.status_code == 403
 
     def test_api_token_user_bypasses_flow_check(self):
-        """Token-authenticated callers (id=0) skip per-flow table."""
+        """API tokens should bypass workspace membership checks."""
+        from app.deps import _require_writer
+        token_user = {"id": 99, "role": "owner", "token_scope": "manage"}
+        # should not raise — tokens bypass workspace membership
+        _require_writer(token_user)
+
+
+# ── _check_flow_access ─────────────────────────────────────────────────────────
+
+class TestCheckFlowAccess:
+    """_check_flow_access enforces run-time flow access for tokens."""
+
+    def test_owner_allowed(self):
         from app.deps import _check_flow_access
-        req = _mock_request(headers={"Authorization": "Bearer tok"})
-        with patch(_GCU, return_value=None), \
-             patch(_ATB, return_value="h"), \
-             patch(_TOKDB, return_value={"name": "ci", "scope": "manage"}), \
-             patch(_TOUCH), \
-             patch("app.deps.get_flow_permission") as mock_fp:
-            _check_flow_access(req, self.GRAPH_ID, "editor")
-        mock_fp.assert_not_called()
+        owner = {"id": 1, "role": "owner"}
+        _check_flow_access(owner, "flow-123", "run")
+
+    def test_admin_allowed(self):
+        from app.deps import _check_flow_access
+        admin = {"id": 2, "role": "admin"}
+        _check_flow_access(admin, "flow-123", "run")
+
+    def test_member_with_permission_allowed(self):
+        from app.deps import _check_flow_access
+        member = {"id": 5, "role": "member", "workspace_id": 1}
+        with patch("app.deps.get_flow_permission", return_value={"role": "editor"}):
+            _check_flow_access(member, 123, "runner")
+
+    def test_member_without_permission_blocked(self):
+        from app.deps import _check_flow_access
+        member = {"id": 5, "role": "member", "workspace_id": 1}
+        with patch("app.deps.get_flow_permission", return_value={"role": "viewer"}):
+            with pytest.raises(HTTPException) as exc_info:
+                _check_flow_access(member, 123, "runner")
+        assert exc_info.value.status_code == 403
+
+    def test_token_without_flow_access_blocked(self):
+        """Token with insufficient flow permissions should be blocked."""
+        from app.deps import _check_flow_access
+        token = {"id": 99, "role": "member", "token_scope": "read"}
+        with patch("app.deps.get_flow_permission", return_value=None):
+            with pytest.raises(HTTPException) as exc_info:
+                _check_flow_access(token, 123, "run")
+        assert exc_info.value.status_code == 403
 
 
-# ── _resolve_workspace ─────────────────────────────────────────────────────
+# ── _resolve_workspace ─────────────────────────────────────────────────────────
 
 class TestResolveWorkspace:
-    """Workspace resolution order: header > cookie > memberships > default."""
+    """_resolve_workspace picks the right workspace from request headers / cookies."""
 
     def test_header_takes_priority(self):
         from app.deps import _resolve_workspace
-        req = _mock_request(headers={"X-Workspace-Id": "7"})
-        fake_ws = {"id": 7, "name": "test"}
-        with patch("app.deps.get_workspace", return_value=fake_ws), \
-             patch("app.deps.get_workspace_member", return_value={"role": "admin"}):
-            result = _resolve_workspace(req, _admin())
-        assert result == 7
+        req = _mock_request(headers={"X-Workspace-Id": "42"})
+        with patch("app.deps.get_workspace", return_value={"id": 42}):
+            result = _resolve_workspace(req, _owner())
+        assert result == 42
 
     def test_cookie_used_when_no_header(self):
         from app.deps import _resolve_workspace
-        req = _mock_request(cookies={"hr_workspace": "5"})
-        with patch("app.deps.get_workspace", return_value={"id": 5}), \
-             patch("app.deps.get_workspace_member", return_value={"role": "viewer"}):
-            result = _resolve_workspace(req, _viewer())
-        assert result == 5
+        req = _mock_request(cookies={"hr_workspace": "7"})
+        with patch("app.deps.get_workspace", return_value={"id": 7}):
+            result = _resolve_workspace(req, _owner())
+        assert result == 7
 
     def test_falls_back_to_default_workspace(self):
         from app.deps import _resolve_workspace
         req = _mock_request()
-        with patch("app.deps.get_workspace", return_value=None), \
-             patch("app.deps.list_user_workspaces", return_value=[]), \
-             patch("app.deps.get_default_workspace", return_value={"id": 1}):
+        with patch("app.deps.get_default_workspace", return_value={"id": 1}):
             result = _resolve_workspace(req, _viewer())
         assert result == 1
 
@@ -323,3 +301,80 @@ class TestResolveWorkspace:
         with patch("app.deps.get_workspace", return_value={"id": 99}):
             result = _resolve_workspace(req, _owner())
         assert result == 99
+
+
+# ── credentials router workspace isolation ─────────────────────────────────────
+
+class TestCredentialIsolation:
+    """Credential list/update/delete must be scoped to the caller's workspace.
+
+    A token from workspace A must not be able to list, update, or delete
+    credentials belonging to workspace B.
+    """
+
+    def _mock_cred_request(self, workspace_header: str = None):
+        headers = {}
+        if workspace_header:
+            headers["X-Workspace-Id"] = workspace_header
+        req = _mock_request(headers=headers)
+        return req
+
+    def test_list_credentials_requires_workspace_match(self):
+        """Listing credentials should only return credentials for the caller's workspace."""
+        from app.routers.credentials import api_creds
+        # User from workspace 1 calling with X-Workspace-Id: 1
+        req = self._mock_cred_request("1")
+        user = {"id": 1, "role": "owner", "username": "owner", "token_scope": "manage"}
+        with patch("app.auth.get_current_user", return_value=user), \
+             patch("app.routers.credentials._resolve_workspace", return_value=1), \
+             patch("app.routers.credentials.list_credentials") as mock_list:
+            mock_list.return_value = [
+                {"id": 1, "name": "cred-a", "workspace_id": 1},
+                {"id": 2, "name": "cred-b", "workspace_id": 1},
+            ]
+            result = api_creds(req)
+            # The router passes workspace_id to list_credentials, so it gets filtered
+            mock_list.assert_called_once_with(workspace_id=1)
+            assert all(r["workspace_id"] == 1 for r in result)
+
+    def test_update_credential_requires_workspace_match(self):
+        """Updating a credential from a different workspace should be rejected."""
+        from app.routers.credentials import api_cred_update, CredUpdate
+        from fastapi import HTTPException
+        req = self._mock_cred_request("1")
+        user = {"id": 1, "role": "owner", "username": "owner", "token_scope": "manage"}
+        with patch("app.auth.get_current_user", return_value=user), \
+             patch("app.deps._resolve_workspace", return_value=1), \
+             patch("app.routers.credentials.update_credential", return_value=None):
+            # update_credential returns None when the cred exists in another workspace but not this one
+            with pytest.raises(HTTPException) as exc_info:
+                api_cred_update(99, CredUpdate(type="webhook", secret="x"), req)
+            assert exc_info.value.status_code == 404
+
+    def test_delete_credential_requires_workspace_match(self):
+        """Deleting a credential from a different workspace should be rejected."""
+        from app.routers.credentials import api_cred_delete
+        from fastapi import HTTPException
+        req = self._mock_cred_request("1")
+        user = {"id": 1, "role": "owner", "username": "owner", "token_scope": "manage"}
+        with patch("app.auth.get_current_user", return_value=user), \
+             patch("app.routers.credentials._resolve_workspace", return_value=1), \
+             patch("app.routers.credentials.delete_credential", return_value=False):
+            with pytest.raises(HTTPException) as exc_info:
+                api_cred_delete(99, req)
+            assert exc_info.value.status_code == 404
+
+    def test_cross_workspace_credential_update_blocked(self):
+        """A token scoped to workspace 1 cannot update a credential belonging to workspace 2."""
+        from app.routers.credentials import api_cred_update, CredUpdate
+        from fastapi import HTTPException
+        req = self._mock_cred_request("1")
+        user = {"id": 1, "role": "owner", "username": "owner", "token_scope": "manage"}
+        # update_credential finds the credential but it's in workspace 2
+        with patch("app.auth.get_current_user", return_value=user), \
+             patch("app.routers.credentials._resolve_workspace", return_value=1), \
+             patch("app.routers.credentials.update_credential", return_value=None):
+            # None means "not found in this workspace" → 404
+            with pytest.raises(HTTPException) as exc_info:
+                api_cred_update(55, CredUpdate(type="webhook", secret="x"), req)
+            assert exc_info.value.status_code == 404

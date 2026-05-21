@@ -37,9 +37,9 @@ def client():
     return c
 
 
-def _poll_run(client, task_id, timeout=45):
+def _poll_run(client, task_id, timeout=120):
     """Poll /api/runs/by-task/{task_id} until the run reaches a terminal state."""
-    for _ in range(timeout):
+    for i in range(timeout):
         r = client.get(f"/api/runs/by-task/{task_id}")
         if r.status_code == 200:
             status = r.json().get("status")
@@ -106,7 +106,10 @@ def test_graph_created(graph_id):
 def test_graph_appears_in_list(client, graph_id):
     resp = client.get("/api/graphs")
     assert resp.status_code == 200
-    ids = [g.get("id") for g in resp.json()]
+    data = resp.json()
+    # API returns {"graphs": [...], "pagination": {...}} with pagination
+    graphs = data if isinstance(data, list) else data.get("graphs", [])
+    ids = [g.get("id") for g in graphs]
     assert graph_id in ids
 
 

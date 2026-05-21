@@ -1,10 +1,12 @@
 """Unit tests for action.run_script — feature flag and audit logging."""
+import logging
 import pytest
 
 
 def _run(script, inp=None):
     from app.nodes.action_run_script import run
-    return run({"script": script}, inp or {}, {}, lambda msg: None)
+    logger = logging.getLogger("audit")
+    return run({"script": script}, inp or {}, {}, logger)
 
 
 class TestFeatureFlag:

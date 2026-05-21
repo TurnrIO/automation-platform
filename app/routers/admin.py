@@ -1,5 +1,8 @@
 """Admin, maintenance, system status, metrics, scripts, nodes, and templates routers."""
 import json
+import httpx
+import logging
+from json import JSONDecodeError
 import re as _re
 import uuid
 from pathlib import Path
@@ -10,8 +13,11 @@ from app.deps import _check_admin, _require_owner
 from app.core.db import log_audit, get_audit_log
 from app._version import __version__
 
+log = logging.getLogger(__name__)
+
 SCRIPTS_DIR   = Path(__file__).parent.parent / 'workflows'
 TEMPLATES_DIR = Path(__file__).parent.parent / 'templates'
+MAX_SCRIPT_SIZE_BYTES = 1 * 1024 * 1024  # 1 MB max script content
 
 router = APIRouter()
 
@@ -84,7 +90,7 @@ def api_system_status(request: Request):
             "latency_ms": latency_ms,
             "pool": pool,
         }
-    except Exception as exc:
+    except (OSError, RuntimeError, AttributeError, KeyError) as exc:
         results["db"] = {
             "status": "error",
             "message": str(exc),
@@ -105,7 +111,7 @@ def api_system_status(request: Request):
             "message": f"Reachable at {display_url}",
             "latency_ms": latency_ms,
         }
-    except Exception as exc:
+    except (OSError, RuntimeError, AttributeError) as exc:
         results["redis"] = {
             "status": "error",
             "message": str(exc),
@@ -133,7 +139,7 @@ def api_system_status(request: Request):
                 "workers": count,
                 "worker_names": worker_names,
             }
-    except Exception as exc:
+    except (OSError, RuntimeError, AttributeError) as exc:
         results["worker"] = {
             "status": "error",
             "message": str(exc),
@@ -159,7 +165,7 @@ def api_system_status(request: Request):
                 "fix": "Check that the scheduler container/process is running: `docker compose ps scheduler`.",
                 "lock_held": False,
             }
-    except Exception as exc:
+    except (OSError, RuntimeError, AttributeError) as exc:
         results["scheduler"] = {
             "status": "warning",
             "message": f"Could not check scheduler lock: {exc}",
@@ -274,7 +280,7 @@ _VERSION_CACHE_TTL = 86400                   # 24 hours in seconds
 @router.get("/api/version")
 def api_version(request: Request):
     """Return current version + latest GitHub release (cached 24 h)."""
-    import time, httpx
+    import time
     from app.core.db import get_setting, set_setting
     _check_admin(request)
 
@@ -290,7 +296,7 @@ def api_version(request: Request):
                 cached["current"] = __version__
                 cached["update_available"] = _version_gt(cached.get("latest", __version__), __version__)
                 return cached
-        except Exception:
+        except JSONDecodeError:
             cached = None
 
     # ── Fetch latest release from GitHub ──────────────────────────────────
@@ -309,7 +315,7 @@ def api_version(request: Request):
             if tag:
                 latest = tag
                 release_url = data.get("html_url", release_url)
-    except Exception as exc:
+    except (httpx.HTTPError, OSError, JSONDecodeError) as exc:
         error = str(exc)
 
     payload = {
@@ -325,7 +331,7 @@ def api_version(request: Request):
     # Cache result (even on error, to avoid hammering GH on every page load)
     try:
         set_setting(_VERSION_CACHE_KEY, json.dumps({k: v for k, v in payload.items() if k != "current"}))
-    except Exception:
+    except (ValueError, AttributeError, TypeError):
         pass
 
     return payload
@@ -337,7 +343,7 @@ def _version_gt(a: str, b: str) -> bool:
         def _parts(v):
             return tuple(int(x) for x in v.lstrip("v").split(".")[:3])
         return _parts(a) > _parts(b)
-    except Exception:
+    except (ValueError, AttributeError):
         return False
 
 
@@ -388,7 +394,11 @@ def api_runlogs(request: Request):
 @router.get("/api/runlogs/{filename}")
 def api_runlog_file(filename: str, request: Request):
     _check_admin(request)
-    p = RUNLOGS_DIR / filename
+    p = (RUNLOGS_DIR / filename).resolve()
+    try:
+        p.relative_to(RUNLOGS_DIR.resolve())
+    except ValueError:
+        raise HTTPException(404)
     if not p.exists() or not p.name.endswith(".log"):
         raise HTTPException(404)
     return {"content": p.read_text(errors="replace")[-8000:]}
@@ -400,9 +410,15 @@ def api_reset(request: Request):
     user = _check_admin(request)
     from app.core.db import get_conn
     with get_conn() as conn:
+        conn.autocommit = False
         cur = conn.cursor()
-        for t in ["runs", "schedules", "graph_versions", "graph_workflows", "workflows"]:
-            cur.execute(f"DELETE FROM {t}")
+        try:
+            for t in ["runs", "schedules", "graph_versions", "graph_workflows", "workflows"]:
+                cur.execute(f"DELETE FROM {t}")
+            conn.commit()
+        except (AttributeError, RuntimeError, OSError, TypeError):
+            conn.rollback()
+            raise
     log_audit(user["username"], "admin.reset", None, None, {"tables": "runs,schedules,graph_versions,graph_workflows,workflows"},
               request.client.host if request.client else None)
     return {"reset": True}
@@ -411,7 +427,7 @@ def api_reset(request: Request):
 @router.post("/api/maintenance/reset_sequences")
 def api_reset_sequences(request: Request):
     """Reset all PostgreSQL SERIAL sequences back to 1."""
-    user = _require_owner(request)
+    user = _check_admin(request)
     from app.core.db import get_conn
     tables = [
         "runs", "workflows", "schedules", "graph_workflows",
@@ -476,7 +492,16 @@ def api_get_script(name: str, request: Request):
 @router.post("/api/scripts")
 async def api_create_script(request: Request):
     _check_admin(request)
+    content_length = request.headers.get("content-length")
+    try:
+        if content_length and int(content_length) > MAX_SCRIPT_SIZE_BYTES:
+            raise HTTPException(413, f"Script content too large — maximum {MAX_SCRIPT_SIZE_BYTES // 1024} KB")
+    except ValueError:
+        raise HTTPException(400, "Invalid Content-Length header")
     body = await request.json()
+    # Reject suspiciously large bodies even if Content-Length was not set
+    if len(json.dumps(body)) > MAX_SCRIPT_SIZE_BYTES:
+        raise HTTPException(413, f"Script content too large — maximum {MAX_SCRIPT_SIZE_BYTES // 1024} KB")
     name = _safe_script_name(body.get("name", ""))
     content = body.get("content", "# New script\n")
     p = SCRIPTS_DIR / f"{name}.py"
@@ -490,7 +515,16 @@ async def api_create_script(request: Request):
 async def api_update_script(name: str, request: Request):
     _check_admin(request)
     _safe_script_name(name)
+    content_length = request.headers.get("content-length")
+    try:
+        if content_length and int(content_length) > MAX_SCRIPT_SIZE_BYTES:
+            raise HTTPException(413, f"Script content too large — maximum {MAX_SCRIPT_SIZE_BYTES // 1024} KB")
+    except ValueError:
+        raise HTTPException(400, "Invalid Content-Length header")
     body = await request.json()
+    # Reject suspiciously large bodies even if Content-Length was not set
+    if len(json.dumps(body)) > MAX_SCRIPT_SIZE_BYTES:
+        raise HTTPException(413, f"Script content too large — maximum {MAX_SCRIPT_SIZE_BYTES // 1024} KB")
     content = body.get("content", "")
     p = SCRIPTS_DIR / f"{name}.py"
     if not p.exists():
@@ -506,7 +540,11 @@ def api_delete_script(name: str, request: Request):
     p = SCRIPTS_DIR / f"{name}.py"
     if not p.exists():
         raise HTTPException(404, "Script not found")
-    p.unlink()
+    try:
+        p.unlink()
+    except (OSError, PermissionError, FileNotFoundError) as exc:
+        log.error("Could not delete script %s: %s", name, exc)
+        raise HTTPException(500, f"Could not delete script: {exc}")
     return {"name": name, "deleted": True}
 
 
@@ -516,7 +554,7 @@ async def api_run_script(name: str, request: Request):
     _safe_script_name(name)
     try:
         payload = await request.json()
-    except Exception:
+    except (JSONDecodeError, UnicodeDecodeError):
         payload = {}
     from app.core.db import get_conn
     from app.deps import _resolve_workspace

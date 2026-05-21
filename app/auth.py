@@ -1,5 +1,6 @@
 """Authentication helpers — session-cookie based auth (v12)."""
-import hashlib, secrets
+import hashlib
+import secrets
 import bcrypt
 from fastapi import Request
 

@@ -147,7 +147,7 @@ def setup_tracing() -> None:
             "Install: opentelemetry-sdk opentelemetry-exporter-otlp-proto-http",
             endpoint, exc,
         )
-    except Exception as exc:
+    except (TypeError, ValueError, AttributeError) as exc:
         log.warning("OTEL tracing setup failed: %s — continuing without tracing", exc)
 
 

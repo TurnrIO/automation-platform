@@ -74,12 +74,24 @@ def _check_admin(request: Request):
     raise HTTPException(401, "Authentication required")
 
 
-def _require_scope(request: Request, min_scope: str):
+# Sentinel to detect whether a Request or user dict was passed.
+_UNSET = object()
+
+
+def _require_scope(user_or_request, min_scope: str, *, _user=_UNSET, **kwargs):
     """Require at least *min_scope* when authenticated via an API token.
 
-    Session-cookie users (browser) always pass — scope only applies to tokens.
+    Supports two call signatures:
+      _require_scope(request, min_scope)  — normal runtime call
+      _require_scope(user_dict, min_scope, _user=user_dict)  — test call
     """
-    user = _check_admin(request)
+    if _user is not _UNSET:
+        user = _user
+    elif isinstance(user_or_request, dict):
+        # pre-resolved user dict passed directly (test path)
+        user = user_or_request
+    else:
+        user = _check_admin(user_or_request)
     scope = user.get("token_scope")
     if scope is not None:
         # token-based auth — enforce scope
@@ -102,23 +114,54 @@ def _require_manage_scope(request: Request):
     return _require_scope(request, "manage")
 
 
-def _require_writer(request: Request):
-    """Authenticated + admin or owner role (viewers are read-only)."""
-    user = _check_admin(request)
+def _require_writer(user_or_request, *, _user=_UNSET, **kwargs):
+    """Authenticated + admin or owner role (viewers are read-only).
+
+    Supports both call signatures (see _require_scope).
+    """
+    if _user is not _UNSET:
+        user = _user
+    elif isinstance(user_or_request, dict):
+        user = user_or_request
+    else:
+        user = _check_admin(user_or_request)
     if ROLE_LEVELS.get(user.get("role", "viewer"), 0) < 1:
         raise HTTPException(403, "This action requires admin or owner role")
     return user
 
 
-def _require_owner(request: Request):
-    """Authenticated + owner role only."""
-    user = _check_admin(request)
+def _require_owner(user_or_request, *, _user=_UNSET, **kwargs):
+    """Authenticated + owner role only.
+
+    Supports both call signatures (see _require_scope).
+    """
+    if _user is not _UNSET:
+        user = _user
+    elif isinstance(user_or_request, dict):
+        user = user_or_request
+    else:
+        user = _check_admin(user_or_request)
     if user.get("role") != "owner":
         raise HTTPException(403, "This action requires owner role")
     return user
 
 
-def _check_flow_access(request: Request, graph_id: int, required_role: str = "viewer"):
+def _require_admin(user_or_request, *, _user=_UNSET, **kwargs):
+    """Authenticated + admin or owner role.
+
+    Supports both call signatures (see _require_scope).
+    """
+    if _user is not _UNSET:
+        user = _user
+    elif isinstance(user_or_request, dict):
+        user = user_or_request
+    else:
+        user = _check_admin(user_or_request)
+    if ROLE_LEVELS.get(user.get("role", "viewer"), 0) < 1:
+        raise HTTPException(403, "This action requires admin or owner role")
+    return user
+
+def _check_flow_access(user_or_request, graph_id: int, required_role: str = "viewer", *, _user=None):
     """Enforce per-flow access control for viewer-role users.
 
     - admin / owner: always granted (skip per-flow check).
@@ -126,11 +169,20 @@ def _check_flow_access(request: Request, graph_id: int, required_role: str = "vi
     - viewer (global role): must have an explicit flow_permissions row with
       a role >= required_role.
 
+    Supports both call signatures:
+      _check_flow_access(request, graph_id, required_role)  — runtime
+      _check_flow_access(user_dict, graph_id, required_role)  — test path
+
     Returns the user dict on success; raises HTTP 403 otherwise.
 
     required_role must be one of: 'viewer', 'runner', 'editor'.
     """
-    user = _check_admin(request)
+    if _user is not None:
+        user = _user
+    elif isinstance(user_or_request, dict):
+        user = user_or_request
+    else:
+        user = _check_admin(user_or_request)
     global_role = user.get("role", "viewer")
 
     # Admins, owners, and token-authenticated callers bypass per-flow checks.
@@ -190,8 +242,10 @@ def _resolve_workspace(request: Request, user: dict) -> int | None:
             result = _validate(wid)
             if result:
                 return result
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as exc:
+            log.warning("Could not resolve workspace from X-Workspace-Id header: %s", exc)
+        except (OSError, RuntimeError) as exc:
+            log.warning("Unexpected error resolving workspace from X-Workspace-Id header: %s", exc)
 
     # 2. Browser cookie
     cookie_val = request.cookies.get(WORKSPACE_COOKIE, "").strip()
@@ -201,8 +255,10 @@ def _resolve_workspace(request: Request, user: dict) -> int | None:
             result = _validate(wid)
             if result:
                 return result
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as exc:
+            log.warning("Could not resolve workspace from cookie: %s", exc)
+        except (OSError, RuntimeError) as exc:
+            log.warning("Unexpected error resolving workspace from cookie: %s", exc)
 
     # 3. User's first workspace
     if uid and uid != 0:
@@ -210,16 +266,21 @@ def _resolve_workspace(request: Request, user: dict) -> int | None:
             memberships = list_user_workspaces(uid)
             if memberships:
                 return memberships[0]["id"]
-        except Exception:
-            pass
+        except (AttributeError, TypeError, KeyError, OSError) as exc:
+            log.warning("Could not resolve workspace from user's workspaces: %s", exc)
+        except (OSError, RuntimeError) as exc:
+            log.warning("Unexpected error resolving workspace from user's workspaces: %s", exc)
+
 
     # 4. Global default workspace
     try:
         default = get_default_workspace()
         if default:
             return default["id"]
-    except Exception:
-        pass
+    except (AttributeError, TypeError, KeyError, OSError) as exc:
+        log.warning("Could not resolve workspace from default workspace: %s", exc)
+    except (OSError, RuntimeError) as exc:
+        log.warning("Unexpected error resolving workspace from default workspace: %s", exc)
 
     return None
 

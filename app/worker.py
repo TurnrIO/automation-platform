@@ -30,7 +30,7 @@ def _fire_webhook(webhook_url: str, payload: dict) -> None:
     try:
         import httpx
         httpx.post(webhook_url, json=payload, timeout=10)
-    except Exception as exc:
+    except (httpx.HTTPError, OSError) as exc:
         log.warning("webhook alert failed (%s): %s", webhook_url[:60], exc)
 
 
@@ -68,7 +68,7 @@ def _send_run_alert(
                 alert_webhook      = cfg.get("alert_webhook") or ""
                 alert_on_success   = bool(cfg.get("alert_on_success", False))
                 alert_min_failures = int(cfg.get("alert_min_failures") or 1)
-        except Exception as exc:
+        except (OSError, KeyError, ValueError, TypeError, RuntimeError) as exc:
             log.warning("Could not load alert config for graph %s: %s", graph_id, exc)
 
     # Decide whether to fire
@@ -88,7 +88,7 @@ def _send_run_alert(
                     graph_id, streak, alert_min_failures,
                 )
                 return
-        except Exception as exc:
+        except (AttributeError, TypeError, KeyError, ValueError) as exc:
             log.warning("Could not check failure streak for graph %s: %s", graph_id, exc)
 
     webhook_payload = {
@@ -149,7 +149,7 @@ def enqueue_workflow(self, workflow_name: str, payload: dict):
     try:
         from app.core.db import init_db
         init_db()
-    except Exception:
+    except (OSError, ImportError):
         pass
     update_run(task_id, "running")
     try:
@@ -159,20 +159,25 @@ def enqueue_workflow(self, workflow_name: str, payload: dict):
             raise ValueError(f"Unknown workflow: {workflow_name}")
         result = workflows[workflow_name](payload)
         update_run(task_id, "succeeded", result=result)
-    except Exception as e:
-        log.exception(f"Workflow {workflow_name} failed")
-        update_run(task_id, "failed", result={"error": str(e)})
+    except (ValueError, TypeError, RuntimeError) as e:
+        # Permanent failures — fail immediately without retry classification
+        log.error(f"Workflow {workflow_name} failed permanently: {e}")
+        update_run(task_id, "dead", result={"error": str(e)})
         _notify_failure(workflow_name, str(e), task_id)
+    except (OSError, RuntimeError, TypeError, KeyError, AttributeError, ValueError) as exc:
+        # Transient failures — logged by outer retry handler in Celery task
+        raise exc
 
 @app.task(bind=True, name="app.worker.enqueue_script")
 def enqueue_script(self, script_name: str, payload: dict):
     """Execute a standalone Python script from the workflows directory."""
     import time as _time
+    log.info(f"enqueue_script started: script={script_name} payload_keys={list(payload.keys())}")
     task_id = self.request.id
     try:
         from app.core.db import init_db
         init_db()
-    except Exception:
+    except (OSError, ImportError):
         pass
     buf = io.StringIO()
     old_stdout, old_stderr = sys.stdout, sys.stderr
@@ -204,6 +209,13 @@ def enqueue_script(self, script_name: str, payload: dict):
                    traces=traces)
     except Exception as e:
         sys.stdout, sys.stderr = old_stdout, old_stderr
+        # BaseException subclasses that should propagate, not be logged as errors:
+        # - SystemExit: sys.exit(0) means "script completed successfully" — Celery handles via task lifecycle
+        # - KeyboardInterrupt: SIGINT / Ctrl+C — worker shutdown signal
+        if isinstance(e, (SystemExit, KeyboardInterrupt)):
+            if isinstance(e, SystemExit):
+                log.info(f"Script {script_name} exited with code={e.code or 0}")
+            raise
         log.exception(f"Script {script_name} failed")
         _notify_failure(script_name, str(e), task_id)
         output = buf.getvalue()
@@ -223,7 +235,7 @@ def enqueue_script(self, script_name: str, payload: dict):
             update_run(task_id, "failed",
                        result={"error": str(e), "script": script_name, "output": output},
                        traces=traces)
-        except Exception:
+        except (OSError, KeyError, ValueError, RuntimeError):
             pass  # best-effort — don't let a DB error create a second FAILURE
 
 
@@ -242,11 +254,11 @@ def _make_run_publisher(task_id: str):
         def _publish(event: dict):
             try:
                 r.publish(channel, json.dumps(event, default=str))
-            except Exception:
+            except (OSError, RuntimeError):
                 pass  # non-fatal — fall back to DB polling on the client
 
         return _publish
-    except Exception:
+    except (OSError, ConnectionError, TimeoutError):
         return None
 
 
@@ -285,7 +297,7 @@ def enqueue_graph(self, graph_id: int, payload: dict,
     try:
         from app.core.db import init_db
         init_db()
-    except Exception:
+    except (OSError, ImportError):
         pass
     update_run(task_id, "running", retry_count=retry_attempt)
     traces = []

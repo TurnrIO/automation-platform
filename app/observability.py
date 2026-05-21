@@ -59,7 +59,9 @@ class _RunMetricsCollector:
             for row in rows:
                 g.add_metric([row["status"]], float(row["n"]))
             yield g
-        except Exception:
+        except (OSError, KeyError, ValueError, psycopg2.Error, AttributeError, Exception):
+            # psycopg2.errors.UndefinedTable inherits from Exception (not psycopg2.Error)
+            # — catch it gracefully so /prometheus scrape never breaks the metrics endpoint
             return  # never let a scrape error break the collector
 
 
@@ -135,7 +137,7 @@ def configure_logging(level: int = logging.INFO) -> None:
     installed, so the app starts cleanly even without the library.
     """
     try:
-        from pythonjsonlogger import jsonlogger
+        from pythonjsonlogger.json import JsonFormatter as _JsonFormatter
     except ImportError:
         logging.basicConfig(level=level)
         logging.getLogger(__name__).warning(
@@ -143,7 +145,7 @@ def configure_logging(level: int = logging.INFO) -> None:
         )
         return
 
-    class _Formatter(jsonlogger.JsonFormatter):
+    class _Formatter(_JsonFormatter):
         def add_fields(self, log_record, record, message_dict):
             super().add_fields(log_record, record, message_dict)
             log_record.setdefault("service", "hiverunr")

@@ -1,0 +1,27 @@
+# Build artifacts
+.coverage
+htmlcov/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+
+# Test & dev files — not needed inside the image
+tests/
+conftest.py
+pytest.ini
+.env
+.env.example
+
+# Docs
+README.md
+CLAUDE.md
+docs/
+
+# Version control
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/

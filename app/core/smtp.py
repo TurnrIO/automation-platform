@@ -12,10 +12,12 @@ Usage:
     from app.core.smtp import send_message
     send_message(host, port, user, pwd, from_addr, to_addr, msg.as_string())
 """
+import logging
 import os
 import ssl
 import smtplib
 
+logger = logging.getLogger(__name__)
 _DEFAULT_TIMEOUT = int(os.environ.get('SMTP_TIMEOUT', '30'))
 
 
@@ -38,24 +40,34 @@ def send_message(
 
     if port == 587:
         # Explicit TLS / STARTTLS
-        with smtplib.SMTP(host, port, timeout=timeout) as s:
-            s.ehlo()
-            s.starttls(context=ctx)
-            s.ehlo()
-            if user and pwd:
-                s.login(user, pwd)
-            s.sendmail(from_addr, to_addr, msg_str)
+        try:
+            with smtplib.SMTP(host, port, timeout=timeout) as s:
+                s.ehlo()
+                s.starttls(context=ctx)
+                s.ehlo()
+                if user and pwd:
+                    s.login(user, pwd)
+                s.sendmail(from_addr, to_addr, msg_str)
+        except smtplib.SMTPException:
+            # re-raised so caller can catch and log
+            raise
 
     elif port == 465:
         # Implicit TLS / SMTP_SSL
-        with smtplib.SMTP_SSL(host, port, timeout=timeout, context=ctx) as s:
-            if user and pwd:
-                s.login(user, pwd)
-            s.sendmail(from_addr, to_addr, msg_str)
+        try:
+            with smtplib.SMTP_SSL(host, port, timeout=timeout, context=ctx) as s:
+                if user and pwd:
+                    s.login(user, pwd)
+                s.sendmail(from_addr, to_addr, msg_str)
+        except smtplib.SMTPException:
+            raise
 
     else:
         # Port 25 or any custom port — plain SMTP (no TLS)
-        with smtplib.SMTP(host, port, timeout=timeout) as s:
-            if user and pwd:
-                s.login(user, pwd)
-            s.sendmail(from_addr, to_addr, msg_str)
+        try:
+            with smtplib.SMTP(host, port, timeout=timeout) as s:
+                if user and pwd:
+                    s.login(user, pwd)
+                s.sendmail(from_addr, to_addr, msg_str)
+        except smtplib.SMTPException:
+            raise

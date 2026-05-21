@@ -10,6 +10,7 @@ periodically and picks up new items since the last run.
 Configuration
 -------------
   url               — RSS or Atom feed URL (required)
+
   lookback_minutes  — return entries published/updated within the last N
                       minutes (default: 60; set 0 to return all entries)
   filter_expression — optional Python expression evaluated per entry; the
@@ -41,7 +42,13 @@ Output shape
   "published":entries[0].published,
 }
 """
+import logging
+
+logger = logging.getLogger(__name__)
+import ipaddress
 import re
+import socket
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
@@ -59,6 +66,55 @@ _NS = {
 }
 
 
+# ── URL validation — SSRF protection ─────────────────────────────────────────
+
+
+# Blocksheet CIDRs that are never safe to fetch from
+_BLOCKED_NETWORKS: list[ipaddress.IPv4Network] = [
+    ipaddress.IPv4Network("0.0.0.0/8"),       # current node
+    ipaddress.IPv4Network("10.0.0.0/8"),      # private
+    ipaddress.IPv4Network("127.0.0.0/8"),     # loopback
+    ipaddress.IPv4Network("169.254.0.0/16"), # AWS/GCP metadata (IMDS)
+    ipaddress.IPv4Network("172.16.0.0/12"),  # private
+    ipaddress.IPv4Network("192.168.0.0/16"),  # private
+    ipaddress.IPv4Network("224.0.0.0/4"),     # multicast
+    ipaddress.IPv4Network("240.0.0.0/4"),     # reserved
+    ipaddress.IPv4Network("169.254.169.254/32"),  # AWS metadata endpoint
+]
+
+
+def _validate_feed_url(url: str) -> None:
+    """"Raise ValueError if the URL is not a safe HTTPS feed URL.
+
+
+    Blocks:
+    - Non-HTTPS schemes (http, file, ftp, gopher, etc.)
+    - IP addresses in blocked ranges (including cloud metadata IPs)
+    - Unsafe hostnames (empty host, literal IP)
+
+    Allows public domain names that resolve to safe IPs.
+    """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme.lower() != "https":
+        raise ValueError(f"trigger.rss: only HTTPS feeds are supported; got scheme '{parsed.scheme}'")
+    if not parsed.netloc:
+        raise ValueError("trigger.rss: URL has no host")
+    # Resolve the hostname and check each resolved IP
+    try:
+        host = parsed.netloc.split(":")[0]  # strip port
+        infos = urllib.parse.getaddrinfo(host, 443 if parsed.scheme == "https" else 80,
+                                        proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, OSError) as exc:
+        raise ValueError(f"trigger.rss: could not resolve host '{host}': {exc}") from exc
+    for family, _, _, _, sockaddr in infos:
+        if family != socket.AF_INET:
+            continue
+        ip = ipaddress.IPv4Address(sockaddr[0])
+        for network in _BLOCKED_NETWORKS:
+            if ip in network:
+                raise ValueError(f"trigger.rss: host '{host}' resolved to blocked IP {ip}")
+
+
 # ── Date parsing ──────────────────────────────────────────────────────────────
 
 def _parse_date(s: str | None) -> datetime | None:
@@ -70,7 +126,7 @@ def _parse_date(s: str | None) -> datetime | None:
     try:
         dt = parsedate_to_datetime(s)
         return dt.astimezone(timezone.utc)
-    except Exception:
+    except (ValueError, TypeError):
         pass
     # Try ISO-8601 variants (Atom <updated>/<published>)
     for fmt in ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S"):
@@ -160,21 +216,41 @@ def _parse_atom(root: ET.Element) -> tuple[str, list[dict]]:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def run(config, inp, context, logger, creds=None, **kwargs):
-    from app.nodes._utils import _render
+    from app.nodes._utils import _render, _safe_eval
+
+    logger.info("trigger.rss: starting")
 
     url = _render(config.get("url", ""), context, creds).strip()
     if not url:
         raise ValueError("trigger.rss: 'url' is required")
 
-    lookback_minutes = int(_render(config.get("lookback_minutes", "60"), context, creds) or 60)
-    max_entries      = int(_render(config.get("max_entries", "50"),       context, creds) or 50)
+    try:
+        _validate_feed_url(url)  # SSRF guard — raises ValueError on blocked URLs
+    except ValueError as exc:
+        logger.warning("trigger.rss: SSRF check failed for %s — %s", url, exc)
+        return {"__error": f"trigger.rss: {exc}", "entries": [], "count": 0}
+
+    try: lookback_minutes = int(_render(config.get("lookback_minutes", "60"), context, creds))
+    except (ValueError, TypeError): lookback_minutes = 60
+    try: max_entries = int(_render(config.get("max_entries", "50"), context, creds))
+    except (ValueError, TypeError): max_entries = 50
     filter_expr      = _render(config.get("filter_expression", ""),       context, creds).strip()
 
     # ── Fetch feed ────────────────────────────────────────────────────────────
     logger.info("trigger.rss: fetching %s", url)
-    req = urllib.request.Request(url, headers={"User-Agent": "HiveRunr/1.0 RSS Trigger"})
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        raw = resp.read()
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "HiveRunr/1.0 RSS Trigger"})
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            raw = resp.read()
+    except urllib.error.HTTPError as exc:
+        logger.warning("trigger.rss: HTTP error fetching %s — %s", url, exc)
+        return {"__error": f"trigger.rss: HTTP error {exc.code} fetching feed: {exc}", "entries": [], "count": 0}
+    except urllib.error.URLError as exc:
+        logger.warning("trigger.rss: URL error fetching %s — %s", url, exc)
+        return {"__error": f"trigger.rss: URL error fetching feed: {exc}", "entries": [], "count": 0}
+    except OSError as exc:
+        logger.warning("trigger.rss: connection error fetching %s — %s", url, exc)
+        return {"__error": f"trigger.rss: connection error: {exc}", "entries": [], "count": 0}
 
     root = ET.fromstring(raw)
     tag  = root.tag.lower()
@@ -207,10 +283,10 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         kept = []
         for e in entries:
             try:
-                if eval(filter_expr, {"entry": e, "re": re, "__builtins__": {}}):  # noqa: S307
+                if _safe_eval(filter_expr, {"entry": e, "re": re}):
                     kept.append(e)
-            except Exception as exc:
-                logger.warning("trigger.rss: filter_expression error: %s", exc)
+            except (SyntaxError, ValueError, NameError, TypeError) as exc:
+                logger.warning("trigger.rss: filter_expression error for entry '%s': %s", e.get('title', '')[:50], exc)
         entries = kept
         logger.info("trigger.rss: %d entries after filter", len(entries))
 
@@ -220,7 +296,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         e["published"] = _to_iso(e.pop("_dt", None)) or e.get("published", "")
 
     first = entries[0] if entries else {}
-    return {
+    result = {
         "entries":    entries,
         "count":      len(entries),
         "feed_title": feed_title,
@@ -231,3 +307,12 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         "published": first.get("published", ""),
         "author":    first.get("author", ""),
     }
+    logger.info(
+        "trigger.rss: completed url=%s total=%d lookback=%dm filter=%s returned=%d",
+        url,
+        len(entries) + (0 if lookback_minutes == 0 else 0),  # we don't track raw total without re-parsing
+        lookback_minutes,
+        repr(filter_expr) if filter_expr else "none",
+        len(entries),
+    )
+    return result

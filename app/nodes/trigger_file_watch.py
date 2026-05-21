@@ -31,12 +31,15 @@ Output shape
 import datetime
 import fnmatch
 import json
+from json import JSONDecodeError
 import logging
 import os
 import time
+import paramiko
+from paramiko import SSHException, AuthenticationException
 from ._utils import _render, _resolve_cred_raw
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 NODE_TYPE = "trigger.file_watch"
 LABEL     = "File Watch"
@@ -66,7 +69,7 @@ def _scan_local(path: str, pattern: str, recursive: bool,
         try:
             entries = list(os.scandir(dirpath))
         except PermissionError as exc:
-            logger(f"[trigger.file_watch] Permission denied: {exc}")
+            logger.info("[trigger.file_watch] Permission denied: %s", exc)
             return
         for entry in entries:
             if entry.is_dir(follow_symlinks=False):
@@ -111,7 +114,7 @@ def _scan_sftp(sftp, path: str, pattern: str, recursive: bool,
     def _walk(dirpath: str):
         try:
             entries = sftp.listdir_attr(dirpath)
-        except Exception:
+        except OSError:
             return
         for entry in entries:
             full_path = dirpath.rstrip("/") + "/" + entry.filename
@@ -151,9 +154,12 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
     pattern   = _render(config.get("pattern", "*"), context, creds).strip() or "*"
     recursive = str(config.get("recursive", "false")).lower() in ("true", "1", "yes")
 
-    lookback_min  = float(_render(str(config.get("lookback_minutes", "60")),  context, creds) or 60)
-    min_age_sec   = float(_render(str(config.get("min_age_seconds",  "0")),   context, creds) or 0)
-    min_size      = int(_render(str(config.get("min_size_bytes", "0")),       context, creds) or 0)
+    try: lookback_min = float(_render(str(config.get("lookback_minutes", "60")), context, creds))
+    except (ValueError, TypeError): lookback_min = 60.0
+    try: min_age_sec = float(_render(str(config.get("min_age_seconds", "0")), context, creds))
+    except (ValueError, TypeError): min_age_sec = 0.0
+    try: min_size = int(_render(str(config.get("min_size_bytes", "0")), context, creds))
+    except (ValueError, TypeError): min_size = 0
     sftp_cred_name = _render(config.get("sftp_credential", ""), context, creds).strip()
 
     if not path:
@@ -168,7 +174,7 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
         raw_cred = _resolve_cred_raw(sftp_cred_name, creds)
         try:
             cred = json.loads(raw_cred) if raw_cred else {}
-        except (json.JSONDecodeError, TypeError):
+        except (JSONDecodeError, TypeError):
             cred = {}
 
         host     = cred.get("host", "")
@@ -180,21 +186,25 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
         if not host:
             raise ValueError("trigger.file_watch: SFTP credential must include 'host'")
 
-        import paramiko
         transport = paramiko.Transport((host, port))
         transport.banner_timeout   = timeout
         transport.handshake_timeout = timeout
         try:
             transport.connect(username=username or None, password=password or None)
-            sftp = paramiko.SFTPClient.from_transport(transport)
-            try:
-                logger(f"[trigger.file_watch] SFTP {host}:{port} path={path} pattern={pattern}")
-                files = _scan_sftp(sftp, path, pattern, recursive,
-                                   newer_than, older_than, min_size)
-            finally:
-                sftp.close()
+        except (OSError, SSHException, AuthenticationException) as exc:
+            logger.warning("[trigger.file_watch] SFTP connect failed: %s:%s — %s", host, port, exc)
+            return {'__error': f'SFTP connect failed: {exc}', 'host': host, 'port': port}
+        sftp = paramiko.SFTPClient.from_transport(transport)
+        try:
+            logger.info("[trigger.file_watch] SFTP %s:%s path=%s pattern=%s", host, port, path, pattern)
+            files = _scan_sftp(sftp, path, pattern, recursive,
+                               newer_than, older_than, min_size)
         finally:
+            sftp.close()
+        try:
             transport.close()
+        except (OSError, SSHException):
+            pass
 
     # ── Local filesystem branch ───────────────────────────────────────────────
     else:
@@ -202,12 +212,11 @@ def run(config: dict, inp: dict, context: dict, logger, creds=None, **kwargs) ->
             raise ValueError(
                 f"trigger.file_watch: path '{path}' does not exist or is not a directory"
             )
-        logger(f"[trigger.file_watch] local path={path} pattern={pattern} "
-               f"lookback={lookback_min}m recursive={recursive}")
+        logger.info("[trigger.file_watch] local path=%s pattern=%s lookback=%sm recursive=%s", path, pattern, lookback_min, recursive)
         files = _scan_local(path, pattern, recursive,
                             newer_than, older_than, min_size, logger)
 
-    logger(f"[trigger.file_watch] found {len(files)} matching file(s)")
+    logger.info("[trigger.file_watch] found %s matching file(s)", len(files))
 
     result = {
         "files": files,

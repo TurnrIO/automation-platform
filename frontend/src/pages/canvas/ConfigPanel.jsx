@@ -437,6 +437,36 @@ export function ConfigPanel({ node, onChange, onDelete, edges }) {
         })}
 
         {/* ── Node-type-specific hint panels ── */}
+        {node.data.type === "trigger.webhook" && (
+          <div style={{ background: "#0f1117", border: "1px solid #2a2d3e", borderRadius: 6, padding: "8px 10px", fontSize: 10, color: "#94a3b8", marginTop: 6, lineHeight: 1.9 }}>
+            <div style={{ color: "#60a5fa", fontWeight: 600, marginBottom: 4 }}>🔗 Webhook trigger</div>
+            This flow runs when an HTTP POST is sent to the webhook URL.
+            To find the URL, go to the <strong>Triggers</strong> page and look for this flow's webhook endpoint.<br />
+            <div style={{ marginTop: 6 }}>Use the <strong>🧪 Test</strong> button in the toolbar to send a test payload directly from the canvas.</div>
+          </div>
+        )}
+        {node.data.type === "trigger.manual" && (
+          <div style={{ background: "#0f1117", border: "1px solid #2a2d3e", borderRadius: 6, padding: "8px 10px", fontSize: 10, color: "#94a3b8", marginTop: 6, lineHeight: 1.8 }}>
+            <div style={{ color: "#059669", fontWeight: 600, marginBottom: 4 }}>▶ Manual trigger</div>
+            This flow only runs when you trigger it manually.
+            Click the <strong>🧪 Test</strong> button in the toolbar and supply a JSON payload.
+          </div>
+        )}
+        {node.data.type === "trigger.cron" && (
+          <div style={{ background: "#0f1117", border: "1px solid #2a2d3e", borderRadius: 6, padding: "8px 10px", fontSize: 10, color: "#94a3b8", marginTop: 6, lineHeight: 1.8 }}>
+            <div style={{ color: "#7c3aed", fontWeight: 600, marginBottom: 4 }}>⏰ Cron schedule</div>
+            This flow runs automatically on the schedule you define with the cron expression.
+            Use <a href="https://crontab.guru" target="_blank" rel="noopener" style={{ color: "#a78bfa" }}>crontab.guru</a> to preview.<br />
+            <div style={{ marginTop: 6 }}>Use the <strong>🧪 Test</strong> button for an immediate manual run with test data.</div>
+          </div>
+        )}
+        {(node.data.type === "trigger.rss" || node.data.type === "trigger.email" || node.data.type === "trigger.file_watch") && (
+          <div style={{ background: "#0f1117", border: "1px solid #2a2d3e", borderRadius: 6, padding: "8px 10px", fontSize: 10, color: "#94a3b8", marginTop: 6, lineHeight: 1.8 }}>
+            <div style={{ color: "#94a3b8", fontWeight: 600, marginBottom: 4 }}>⏰ Scheduled/polling trigger</div>
+            This flow runs automatically when the external source is polled.<br />
+            Use the <strong>🧪 Test</strong> button in the toolbar to simulate a trigger with sample data.
+          </div>
+        )}
         {node.data.type === "action.condition" && (
           <div style={{ background: "#0f1117", border: "1px solid #2a2d3e", borderRadius: 6, padding: "8px 10px", fontSize: 10, color: "#94a3b8", marginTop: 6, lineHeight: 1.8 }}>
             Expression must evaluate to a Python bool.<br />
@@ -807,6 +837,22 @@ export function ConfigPanel({ node, onChange, onDelete, edges }) {
               <span style={{ color: "#64748b" }}>Every 15 min</span><code>*/15 * * * *</code>
               <span style={{ color: "#64748b" }}>1st of month</span><code>0 0 1 * *</code>
             </div>
+          </div>
+        )}
+
+        {node.data.type === "trigger.webhook" && (
+          <div style={{ background: "#0f1117", border: "1px solid #2a2d3e", borderRadius: 6, padding: "8px 10px", fontSize: 10, color: "#94a3b8", marginTop: 6, lineHeight: 1.8 }}>
+            <div style={{ color: "#0284c7", fontWeight: 600, marginBottom: 4 }}>🔗 Webhook Trigger</div>
+            Your webhook URL is:<br />
+            <code style={{ color: "#a78bfa", wordBreak: "break-all" }}>https://your-app.example.com/api/webhooks/trigger/{"{{graph_id}}"}/{"{{secret}}"}</code><br />
+            Replace <strong>{"{{graph_id}}"}</strong> with this flow's ID and <strong>{"{{secret}}"}</strong> with your secret (or leave blank to accept any POST).<br />
+            To fire manually, use the <strong>▶ Run</strong> button in the topbar.
+          </div>
+        )}
+
+        {!runStatus && (node.data.type === "trigger.cron" || node.data.type === "trigger.webhook" || node.data.type === "trigger.rss" || node.data.type === "trigger.email" || node.data.type === "trigger.file_watch") && (
+          <div style={{ background: "#0f1117", border: "1px solid #2a2d3e", borderRadius: 6, padding: "8px 10px", fontSize: 10, color: "#64748b", marginTop: 6, lineHeight: 1.7 }}>
+            <span style={{ color: "#a78bfa" }}>💡</span> This flow has never run. Use the <strong>▶ Run</strong> button in the topbar to test it manually, or save and the trigger will activate on schedule.
           </div>
         )}
 

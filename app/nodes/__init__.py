@@ -27,7 +27,7 @@ def _load_package(package_name: str, path: str):
             if hasattr(mod, 'NODE_TYPE') and hasattr(mod, 'run'):
                 _registry[mod.NODE_TYPE] = mod.run
                 log.debug(f"Registered node: {mod.NODE_TYPE}")
-        except Exception as e:
+        except (AttributeError, TypeError) as e:
             log.warning(f"Failed to load node module {full_name}: {e}")
 
 

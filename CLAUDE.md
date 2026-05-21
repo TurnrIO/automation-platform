@@ -371,9 +371,27 @@ Pick the next item off the top. Cross it off and add a "Completed sprints" row w
 
 ### 🟠 N6 — More integrations
 
-75. **New node: `action.linear`** — Linear.app issue tracker; credential: `api_key`; operations: create-issue, update-issue, get-issue, search-issues (GraphQL); output: `issue{}`, `issues[]`.
+75. ~~**New node: `action.linear`**~~ ✓ Done — Linear.app issue tracker; credential: `api_key`; operations: create-issue, update-issue, get-issue, search-issues (GraphQL); output: `issue{}`, `issues[]`.
 
-76. **New node: `action.openai_assistant`** — OpenAI Assistants API; credential: `api_key`; operations: create-thread, add-message, run-thread, get-run-status, list-messages; output: `messages[]`, `run_id`, `status`.
+76. ~~**New node: `action.openai_assistant`**~~ ✓ Done — OpenAI Assistants API; credential: `api_key`; operations: create-thread, add-message, run-thread, get-run-status, list-messages; output: `messages[]`, `run_id`, `status`.
+
+---
+
+### 🟠 S5 — Production hardening (from Mistral report, 2026-05-18)
+
+79. **Caddyfile security headers** — X-Frame-Options, Content-Security-Policy, Strict-Transport-Security, Referrer-Policy, Permissions-Policy added to Caddyfile. ~~✓ Done — IMP-BD committed.~~
+
+80. ~~**API rate limiting** — FastAPI routes have no `slowapi` / rate-limit middleware. All endpoints are unprotected against burst/DoS. Add `slowapi` with configurable per-IP and per-token limits on critical routes.~~ ✓ Done — IMP-BF: slowapi==0.1.9, Redis-backed Limiter, @limiter.limit("10/minute") on login, "60/minute" on webhooks
+
+81. **Scoped API tokens** — All tokens are unscoped (owner-level only). A compromised token grants full access. Implement token scopes: `runs:read`, `runs:write`, `graphs:read`, `graphs:write`, `credentials:read`, `credentials:write`, etc.
+
+82. **CORS restrictions** — Caddyfile has no `Access-Control-Allow-Origin` restrictions. The React SPA and API are same-origin so CORS isn't triggered, but explicit allowlist improves defence-in-depth.
+
+83. **Dependency pinning** — Most packages float (`fastapi>=0.0.0` style). A compromised upstream release could introduce vulnerabilities. Pin all runtime dependencies in `requirements.txt` with `>=` or `==` bounds.
+
+84. **pydantic.BaseSettings for env validation** — Env vars are read with `os.environ.get()` and fail silently if malformed. Use `pydantic.BaseSettings` (or `pydantic-settings`) to validate required vars and types at startup.
+
+85. ~~**S3 botocore timeouts** — `action_s3.py` passes no explicit timeouts to boto3 client calls. Long-hanging S3 ops could block workers indefinitely. Add per-operation timeouts (e.g. 30s default).~~ ✓ Done — IMP-BF: connect_timeout + read_timeout in BotoConfig, timeout config field on run()
 
 ---
 

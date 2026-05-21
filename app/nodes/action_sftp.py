@@ -1,11 +1,50 @@
 """SFTP/FTP file transfer action node."""
 import io
+import ipaddress
+import logging
+import socket
 import stat as _stat
 import json
+from json import JSONDecodeError
+import paramiko
+from paramiko import SSHException, AuthenticationException
 from app.nodes._utils import _render, _resolve_cred_raw
+
+logger = logging.getLogger(__name__)
 
 NODE_TYPE = "action.sftp"
 LABEL = "SFTP / FTP"
+
+_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("ff00::/8"),
+]
+
+
+def _is_internal_ip(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        return any(ip in net for net in _BLOCKED_NETWORKS)
+    except ValueError:
+        return True
+
+
+def _check_ssrf(host: str, port: int) -> None:
+    """Block connections to internal/reserved IPs via DNS resolution."""
+    try:
+        infos = socket.getaddrinfo(host, port)
+        for (_, _, _, _, sockaddr) in infos:
+            if _is_internal_ip(sockaddr[0]):
+                raise ValueError(f"SSRF blocked: resolved to internal IP {sockaddr[0]}")
+    except socket.gaierror:
+        raise ValueError(f"SSRF blocked: could not resolve hostname '{host}'")
 
 
 # ── helpers ───────────────────────────────────────────────────────────────
@@ -15,7 +54,7 @@ def _sftp_walk(sftp, path, depth=0):
     results = []
     try:
         attrs = sftp.listdir_attr(path)
-    except Exception:
+    except OSError:
         return results
     for a in attrs:
         full_path = path.rstrip('/') + '/' + a.filename
@@ -51,7 +90,7 @@ def _ftp_walk(ftp, path, depth=0):
             })
             if is_dir:
                 results.extend(_ftp_walk(ftp, full_path, depth + 1))
-    except Exception:
+    except OSError:
         # Fallback: nlst + cwd trick to detect directories
         try:
             names = ftp.nlst(path)
@@ -65,7 +104,7 @@ def _ftp_walk(ftp, path, depth=0):
                     ftp.cwd(full_path)
                     ftp.cwd(orig)
                     is_dir = True
-                except Exception:
+                except OSError:
                     pass
                 results.append({
                     'name':   name,
@@ -76,7 +115,7 @@ def _ftp_walk(ftp, path, depth=0):
                 })
                 if is_dir:
                     results.extend(_ftp_walk(ftp, full_path, depth + 1))
-        except Exception:
+        except OSError:
             pass
     return results
 
@@ -97,7 +136,7 @@ def _ftp_list_flat(ftp, path):
                 'is_dir': is_dir,
                 'depth':  0,
             })
-    except Exception:
+    except OSError:
         # Fallback: nlst only
         try:
             for full_path in ftp.nlst(path):
@@ -110,7 +149,7 @@ def _ftp_list_flat(ftp, path):
                     ftp.cwd(full_path)
                     ftp.cwd(orig)
                     is_dir = True
-                except Exception:
+                except OSError:
                     pass
                 results.append({
                     'name':   name,
@@ -119,7 +158,7 @@ def _ftp_list_flat(ftp, path):
                     'is_dir': is_dir,
                     'depth':  0,
                 })
-        except Exception:
+        except OSError:
             pass
     return results
 
@@ -127,6 +166,7 @@ def _ftp_list_flat(ftp, path):
 # ── main ──────────────────────────────────────────────────────────────────
 
 def run(config, inp, context, logger, creds=None, **kwargs):
+    logger.info("SFTP: node invoked")
     """Transfer files and manage paths via SFTP or FTP.
 
     Operations: list, upload, download, delete, mkdir, rename, exists, stat
@@ -138,10 +178,16 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     password    = _render(config.get('password', ''), context, creds)
     operation   = (config.get('operation', 'list') or 'list').lower()
     remote_path = _render(config.get('remote_path', '/'), context, creds)
+
+    logger.info("[action.sftp] Starting SFTP run")
+    logger.info("SFTP: op=%s host=%s path=%s", operation, host, remote_path)
     new_path    = _render(config.get('new_path', ''), context, creds)   # for rename
     content     = _render(config.get('content', ''), context, creds)
     recursive   = str(config.get('recursive', 'false')).lower() in ('true', '1', 'yes')
-    timeout     = int(config.get('timeout', 30) or 30)
+    try:
+        timeout = int(_render(str(config.get('timeout', 30)), context, creds))
+    except (ValueError, TypeError):
+        timeout = 30
 
     # ── credential shortcut ───────────────────────────────────────────────
     cred_name = _render(config.get('credential', ''), context, creds)
@@ -156,7 +202,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                 port_str = port_str or str(c.get('port', ''))
                 username = username or c.get('username', '')
                 password = password or c.get('password', '')
-            except (json.JSONDecodeError, AttributeError):
+            except (JSONDecodeError, AttributeError):
                 pass
 
     default_port = 22 if protocol == 'sftp' else 21
@@ -165,106 +211,117 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     if not host:
         raise ValueError("SFTP node: no host configured")
 
+    _check_ssrf(host, port)
+
     # ══════════════════════════════════════════════════════════════════════
     # SFTP
     # ══════════════════════════════════════════════════════════════════════
     if protocol == 'sftp':
-        import paramiko
 
-        transport = paramiko.Transport((host, port))
-        transport.banner_timeout  = timeout
-        transport.handshake_timeout = timeout
         try:
+            transport = paramiko.Transport((host, port))
+            transport.banner_timeout  = timeout
+            transport.handshake_timeout = timeout
             transport.connect(username=username or None, password=password or None)
-            sftp = paramiko.SFTPClient.from_transport(transport)
-            try:
+        except (OSError, SSHException, AuthenticationException) as exc:
+            logger.warning("SFTP connect failed: host=%s port=%s — %s", host, port, exc)
+            return {'__error': f'SFTP connect failed: {exc}', 'host': host, 'port': port}
 
-                # ── list ──────────────────────────────────────────────────
-                if operation == 'list':
-                    if recursive:
-                        files = _sftp_walk(sftp, remote_path)
-                        dirs  = [f for f in files if f['is_dir']]
-                        return {
-                            'files': files,
-                            'count': len(files),
-                            'dir_count':  len(dirs),
-                            'file_count': len(files) - len(dirs),
-                            'path':      remote_path,
-                            'recursive': True,
-                        }
-                    else:
-                        attrs = sftp.listdir_attr(remote_path)
-                        files = [{
-                            'name':   a.filename,
-                            'path':   remote_path.rstrip('/') + '/' + a.filename,
-                            'size':   a.st_size,
-                            'is_dir': _stat.S_ISDIR(a.st_mode or 0),
-                            'depth':  0,
-                        } for a in attrs]
-                        return {'files': files, 'count': len(files), 'path': remote_path, 'recursive': False}
+        sftp = paramiko.SFTPClient.from_transport(transport)
+        try:
+            # ── list ──────────────────────────────────────────────────
+            if operation == 'list':
+                if recursive:
+                    files = _sftp_walk(sftp, remote_path)
+                    dirs  = [f for f in files if f['is_dir']]
+                    return {
+                        'files': files,
+                        'count': len(files),
+                        'dir_count':  len(dirs),
+                        'file_count': len(files) - len(dirs),
+                        'path':      remote_path,
+                        'recursive': True,
+                    }
+                else:
+                    attrs = sftp.listdir_attr(remote_path)
+                    files = [{
+                        'name':   a.filename,
+                        'path':   remote_path.rstrip('/') + '/' + a.filename,
+                        'size':   a.st_size,
+                        'is_dir': _stat.S_ISDIR(a.st_mode or 0),
+                        'depth':  0,
+                    } for a in attrs]
+                    return {'files': files, 'count': len(files), 'path': remote_path, 'recursive': False}
 
-                # ── upload ────────────────────────────────────────────────
-                elif operation == 'upload':
-                    data = content.encode('utf-8') if isinstance(content, str) else content
-                    sftp.putfo(io.BytesIO(data), remote_path)
-                    return {'uploaded': True, 'remote_path': remote_path, 'size': len(data)}
+            # ── upload ────────────────────────────────────────────────
+            elif operation == 'upload':
+                data = content.encode('utf-8') if isinstance(content, str) else content
+                sftp.putfo(io.BytesIO(data), remote_path)
+                logger.info("SFTP: uploaded %s bytes to %s", len(data), remote_path)
+                return {'uploaded': True, 'remote_path': remote_path, 'size': len(data)}
 
-                # ── download ──────────────────────────────────────────────
-                elif operation == 'download':
-                    buf = io.BytesIO()
-                    sftp.getfo(remote_path, buf)
-                    text = buf.getvalue().decode('utf-8', errors='replace')
-                    return {'content': text, 'remote_path': remote_path, 'size': len(text)}
+            # ── download ──────────────────────────────────────────────
+            elif operation == 'download':
+                buf = io.BytesIO()
+                sftp.getfo(remote_path, buf)
+                text = buf.getvalue().decode('utf-8', errors='replace')
+                logger.info("SFTP: downloaded %s bytes from %s", len(text), remote_path)
+                return {'content': text, 'remote_path': remote_path, 'size': len(text)}
 
-                # ── delete ────────────────────────────────────────────────
-                elif operation == 'delete':
-                    sftp.remove(remote_path)
-                    return {'deleted': True, 'remote_path': remote_path}
+            # ── delete ────────────────────────────────────────────────
+            elif operation == 'delete':
+                sftp.remove(remote_path)
+                return {'deleted': True, 'remote_path': remote_path}
 
-                # ── mkdir ─────────────────────────────────────────────────
-                elif operation == 'mkdir':
-                    sftp.mkdir(remote_path)
-                    return {'created': True, 'remote_path': remote_path}
+            # ── mkdir ─────────────────────────────────────────────────
+            elif operation == 'mkdir':
+                sftp.mkdir(remote_path)
+                return {'created': True, 'remote_path': remote_path}
 
-                # ── rename / move ─────────────────────────────────────────
-                elif operation == 'rename':
-                    if not new_path:
-                        raise ValueError("SFTP rename: 'new_path' is required")
-                    sftp.rename(remote_path, new_path)
-                    return {'renamed': True, 'from': remote_path, 'to': new_path}
+            # ── rename / move ─────────────────────────────────────────
+            elif operation == 'rename':
+                if not new_path:
+                    raise ValueError("SFTP rename: 'new_path' is required")
+                sftp.rename(remote_path, new_path)
+                return {'renamed': True, 'from': remote_path, 'to': new_path}
 
-                # ── exists ────────────────────────────────────────────────
-                elif operation == 'exists':
-                    try:
-                        a = sftp.stat(remote_path)
-                        is_dir = _stat.S_ISDIR(a.st_mode or 0)
-                        return {'exists': True, 'is_dir': is_dir, 'path': remote_path}
-                    except FileNotFoundError:
-                        return {'exists': False, 'is_dir': False, 'path': remote_path}
-
-                # ── stat ──────────────────────────────────────────────────
-                elif operation == 'stat':
-                    import datetime
+            # ── exists ────────────────────────────────────────────────
+            elif operation == 'exists':
+                try:
                     a = sftp.stat(remote_path)
                     is_dir = _stat.S_ISDIR(a.st_mode or 0)
-                    mtime = datetime.datetime.utcfromtimestamp(a.st_mtime).isoformat() + 'Z' if a.st_mtime else None
-                    return {
-                        'path':     remote_path,
-                        'size':     a.st_size,
-                        'is_dir':   is_dir,
-                        'modified': mtime,
-                        'mode':     oct(a.st_mode) if a.st_mode else None,
-                    }
+                    return {'exists': True, 'is_dir': is_dir, 'path': remote_path}
+                except FileNotFoundError:
+                    return {'exists': False, 'is_dir': False, 'path': remote_path}
 
-                else:
-                    raise ValueError(
-                        f"SFTP: unknown operation '{operation}'. "
-                        "Use: list, upload, download, delete, mkdir, rename, exists, stat"
-                    )
+            # ── stat ──────────────────────────────────────────────────
+            elif operation == 'stat':
+                import datetime
+                a = sftp.stat(remote_path)
+                is_dir = _stat.S_ISDIR(a.st_mode or 0)
+                mtime = datetime.datetime.utcfromtimestamp(a.st_mtime).isoformat() + 'Z' if a.st_mtime else None
+                return {
+                    'path':     remote_path,
+                    'size':     a.st_size,
+                    'is_dir':   is_dir,
+                    'modified': mtime,
+                    'mode':     oct(a.st_mode) if a.st_mode else None,
+                }
 
-            finally:
-                sftp.close()
+            else:
+                raise ValueError(
+                    f"SFTP: unknown operation '{operation}'. "
+                    "Use: list, upload, download, delete, mkdir, rename, exists, stat"
+                )
+
+        except (OSError, SSHException) as exc:
+            logger.warning("SFTP operation '%s' failed: %s", operation, exc)
+            return {'__error': f'SFTP operation failed: {exc}', 'operation': operation}
         finally:
+            try:
+                sftp.close()
+            except (NameError, OSError):
+                pass
             transport.close()
 
     # ══════════════════════════════════════════════════════════════════════
@@ -273,11 +330,21 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     elif protocol == 'ftp':
         import ftplib
 
-        ftp = ftplib.FTP()
-        ftp.connect(host, port, timeout=timeout)
-        try:
-            ftp.login(username or '', password or '')
+        _check_ssrf(host, port)
 
+        ftp = ftplib.FTP()
+        try:
+            ftp.connect(host, port, timeout=timeout)
+            try:
+                ftp.login(username or '', password or '')
+            except (ftplib.error_perm, OSError) as exc:
+                logger.warning("FTP login failed: host=%s port=%s — %s", host, port, exc)
+                return {'__error': f'FTP login failed: {exc}', 'host': host, 'port': port}
+        except OSError as exc:
+            logger.warning("FTP connect failed: host=%s port=%s — %s", host, port, exc)
+            return {'__error': f'FTP connect failed: {exc}', 'host': host, 'port': port}
+
+        try:
             # ── list ──────────────────────────────────────────────────────
             if operation == 'list':
                 if recursive:
@@ -299,6 +366,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             elif operation == 'upload':
                 data = content.encode('utf-8') if isinstance(content, str) else content
                 ftp.storbinary(f'STOR {remote_path}', io.BytesIO(data))
+                logger.info("FTP: uploaded %s bytes to %s", len(data), remote_path)
                 return {'uploaded': True, 'remote_path': remote_path}
 
             # ── download ──────────────────────────────────────────────────
@@ -306,6 +374,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                 buf = io.BytesIO()
                 ftp.retrbinary(f'RETR {remote_path}', buf.write)
                 text = buf.getvalue().decode('utf-8', errors='replace')
+                logger.info("FTP: downloaded %s bytes from %s", len(text), remote_path)
                 return {'content': text, 'remote_path': remote_path, 'size': len(text)}
 
             # ── delete ────────────────────────────────────────────────────
@@ -373,7 +442,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                 except ftplib.error_perm:
                     try:
                         size = ftp.size(remote_path)
-                    except Exception:
+                    except OSError:
                         pass
                 return {'path': remote_path, 'size': size, 'is_dir': is_dir, 'modified': mtime}
 
@@ -386,7 +455,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         finally:
             try:
                 ftp.quit()
-            except Exception:
+            except OSError:
                 pass
 
     else:
