@@ -109,6 +109,7 @@ def _req(method, path, token, body=None):
         if max_redirects == 0:
             raise ValueError("HubSpot: too many redirects")
         url = location
+        # SSRF check on the redirect target URL (before making the request)
         try:
             _check_url_ssrf(url)
         except ValueError as e:
