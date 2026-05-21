@@ -99,7 +99,10 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         max_redirects = 10
         while max_redirects > 0:
             try:
-                r = httpx.request(method, url, headers=headers, timeout=httpx.Timeout(30.0), follow_redirects=False, **kw)
+                r = httpx.request(
+                    method, url, headers=headers,
+                    timeout=httpx.Timeout(30.0), follow_redirects=False, **kw
+                )
             except httpx.HTTPError as exc:
                 logger.error("GitHub API request error action=%s url=%s error=%s", action, url, exc)
                 raise
@@ -194,7 +197,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         if not repo:
             raise ValueError("GitHub list_prs: repo required")
         logger.info("GitHub: list_prs repo=%s state=%s", repo, state)
-        result = {'pull_requests': gh('GET', f'{base}/repos/{repo}/pulls', params={'state': state or 'open', 'per_page': 20})}
+        params = {'state': state or 'open', 'per_page': 20}
+        result = {'pull_requests': gh('GET', f'{base}/repos/{repo}/pulls', params=params)}
         logger.info("GitHub: completed action=%s count=%s", action, len(result.get('pull_requests', [])))
         return result
 
@@ -203,8 +207,13 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             raise ValueError("GitHub get_file: repo and path required")
         _check_path_traversal(path, "get_file")
         logger.info("GitHub: get_file repo=%s path=%s branch=%s", repo, path, branch)
-        data = gh('GET', f'{base}/repos/{repo}/contents/{path}', params={'ref': branch})
-        text = base64.b64decode(data.get('content', '')).decode('utf-8', errors='replace') if data.get('encoding') == 'base64' else ''
+        ref = branch
+        data = gh('GET', f'{base}/repos/{repo}/contents/{path}', params={'ref': ref})
+        text = (
+            base64.b64decode(data.get('content', ''))
+            .decode('utf-8', errors='replace')
+            if data.get('encoding') == 'base64' else ''
+        )
         result = {**data, 'decoded_content': text}
         logger.info("GitHub: completed action=%s path=%s", action, path)
         return result
@@ -213,7 +222,8 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         if not repo or not title:
             raise ValueError("GitHub create_release: repo and title (tag name) required")
         logger.info("GitHub: create_release repo=%s tag=%s", repo, title)
-        result = gh('POST', f'{base}/repos/{repo}/releases', json={'tag_name': title, 'name': title, 'body': body, 'draft': False})
+        payload = {'tag_name': title, 'name': title, 'body': body, 'draft': False}
+        result = gh('POST', f'{base}/repos/{repo}/releases', json=payload)
         logger.info("GitHub: completed action=%s release_url=%s", action, result.get('html_url', ''))
         return result
 
