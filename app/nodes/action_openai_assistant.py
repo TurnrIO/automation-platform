@@ -40,11 +40,11 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     cred_name = config.get("credential", "")
     api_key = ""
     if cred_name and creds:
-        raw = creds.get(cred_name, {})
-        if isinstance(raw, str):
+        raw = _resolve_cred_raw(cred_name, creds)
+        if raw:
             try:   raw = json.loads(raw)
-            except JSONDecodeError: raw = {}
-        api_key = raw.get("api_key", raw.get("token", ""))
+            except (JSONDecodeError, AttributeError): pass
+            api_key = raw.get("api_key", raw.get("token", "")) if isinstance(raw, dict) else str(raw)
     if not api_key:
         api_key = _render(config.get("api_key", ""), context, creds)
     if not api_key:
