@@ -111,6 +111,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             decision = raw.decode()
             _update_status(token, decision)
             logger.info("Approval decision received: %s", decision)
+            logger.info("Wait for Approval: approval gate completed decision=%s", decision)
             return {
                 "approved":    decision == "approved",
                 "decision":    decision,
