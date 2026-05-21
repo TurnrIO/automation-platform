@@ -19,5 +19,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         secs = 1.0
     time.sleep(max(0.0, secs))
     logger.info("Delay: slept %s seconds", secs)
+    logger.info("Delay: completed seconds=%s", secs)
     return {'slept': secs}
 
