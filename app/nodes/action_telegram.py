@@ -37,4 +37,5 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         logger.warning("Telegram: unexpected response shape — %s", exc)
         raise RuntimeError(f"Telegram response error: {exc}") from exc
 
+    logger.info('Telegram: completed')
     return {'sent': True, 'chat_id': chat}
