@@ -52,9 +52,10 @@ def _run_script_worker(script: str, inp, context_json: str, ns_keys: list, resul
         # Re-raise immediately — these signal intentional shutdown and must not
         # be converted to a RuntimeError that masks the real termination reason.
         raise
-    except Exception:
-        # Write exception info so the parent gets a meaningful error, not a
-        # generic "script raised an exception" with no details.
+    except (AttributeError, KeyError, TypeError, json.JSONDecodeError):
+        # Narrow catch to script logic errors only. Daemon process crashes
+        # (segfault, SIGKILL) raise OSError from join()/is_alive() in the
+        # caller and must not be masked as a script error.
         import sys
         exc_type = sys.exc_info()[0]
         exc_val  = str(sys.exc_info()[1])
