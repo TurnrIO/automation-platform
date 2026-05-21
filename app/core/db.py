@@ -170,6 +170,20 @@ def run_migrations() -> None:
     # Always override with the live DATABASE_URL so Docker env vars take effect
     cfg.set_main_option("sqlalchemy.url", DSN)
     _cmd.upgrade(cfg, "head")
+    # Verify the migration actually applied by reading the version back from the
+    # DB.  This also acts as a basic connectivity check — if the DB became
+    # unreachable mid-migration the read will fail and we'll log the issue.
+    try:
+        import psycopg2
+        conn = psycopg2.connect(DSN)
+        cur = conn.cursor()
+        cur.execute("SELECT version_num FROM alembic_version LIMIT 1")
+        row = cur.fetchone()
+        version = row[0] if row else "(none)"
+        conn.close()
+        log.info("run_migrations: completed, version=%s", version)
+    except Exception as exc:
+        log.warning("run_migrations: upgrade succeeded but version check failed — %s", exc)
 
 
 def init_db():
