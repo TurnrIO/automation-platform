@@ -46,9 +46,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
             except (JSONDecodeError, AttributeError): pass
             api_key = raw.get("api_key", raw.get("token", "")) if isinstance(raw, dict) else str(raw)
     if not api_key:
-        api_key = _render(config.get("api_key", ""), context, creds)
-    if not api_key:
-        api_key = os.environ.get("OPENAI_API_KEY", "")
+        api_key = config.get("api_key") or os.environ.get("OPENAI_API_KEY", "")
     if not api_key:
         raise ValueError("OpenAI Assistant: api_key is required")
 
