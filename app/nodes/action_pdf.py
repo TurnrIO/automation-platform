@@ -108,6 +108,7 @@ def run(config, inp, context, logger, creds=None, **kwargs):
     encoded = base64.b64encode(raw).decode("ascii")
 
     logger.info("action.pdf: generated %d bytes → %s", len(raw), filename)
+    logger.info("action.pdf: completed successfully, pdf_bytes=%d, size_bytes=%d", len(encoded), len(raw))
     return {
         "pdf_bytes":   encoded,
         "size_bytes":  len(raw),
