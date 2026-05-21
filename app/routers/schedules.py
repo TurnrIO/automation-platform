@@ -172,7 +172,7 @@ def api_run_schedule_now(sid: int, request: Request):
             )
             update_run(task_id, "succeeded", result=result,
                        traces=result.get('traces', []))
-        except (OSError, RuntimeError) as run_exc:
+        except (ValueError, TypeError, AttributeError, OSError, RuntimeError) as run_exc:
             log.exception("Inline schedule run failed for schedule %s", sid)
             update_run(task_id, "failed", result={"error": str(run_exc)})
 
