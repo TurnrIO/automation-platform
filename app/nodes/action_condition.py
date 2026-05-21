@@ -17,5 +17,6 @@ def run(config, inp, context, logger, creds=None, **kwargs):
         logger.warning("Condition: invalid expression=%s", expr)
         return {'result': False, 'input': inp, '__error': 'invalid_expression'}
     logger.info("Condition: expression=%s -> %s", expr, result)
+    logger.info("Condition: completed, result=%s", result)
     return {'result': bool(result), 'input': inp}
 
