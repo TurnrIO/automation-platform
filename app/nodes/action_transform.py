@@ -28,5 +28,5 @@ def run(config, inp, context, logger, creds=None, **kwargs):
                 '__error': f"Cannot slice a dict with {notation} — 'input' is a dict, not a list.{hint}"
             }
         raise RuntimeError(f"Transform expression error: {type(e).__name__}: {e}")
-    logger.info("Transform: evaluated expression")
+    logger.info("Transform: evaluated expression result_type=%s", type(result).__name__)
     return result
